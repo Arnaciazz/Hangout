@@ -1,82 +1,85 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'config/app_config.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 import 'screens/home_screen.dart';
-import 'screens/swipe_screen.dart';
-import 'screens/memory_screen.dart';
-import 'screens/match_screen.dart';
-import 'screens/profile_screen.dart';
-import 'widgets/bottom_nav_bar.dart';
+import 'screens/login_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase (FCM + google-services.json)
+  await Firebase.initializeApp();
+
+  // Initialize Supabase (auth + database + realtime)
+  await Supabase.initialize(
+    url: AppConfig.supabaseUrl,
+    anonKey: AppConfig.supabaseAnonKey,
+  );
+
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
     systemNavigationBarColor: Colors.transparent,
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
-  runApp(const DecisionlyApp());
+  runApp(const ShuffleApp());
 }
 
-class DecisionlyApp extends StatelessWidget {
-  const DecisionlyApp({super.key});
+class ShuffleApp extends StatelessWidget {
+  const ShuffleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Decisionly',
+      title: 'Shuffle',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const AppShell(),
+      home: const AuthGate(),
     );
   }
 }
 
-class AppShell extends StatefulWidget {
-  const AppShell({super.key});
-  @override
-  State<AppShell> createState() => _AppShellState();
-}
+// ─── Auth Gate ────────────────────────────────────────────────────────────────
+// Listens to Supabase auth state. Shows LoginScreen when logged out,
+// AppShell when logged in. No Navigator.push needed — reactive rebuild.
 
-class _AppShellState extends State<AppShell> {
-  int _currentIndex = 0;
-  bool _showMatch = false;
-
-  void _goToSwipe() => setState(() => _currentIndex = 1);
-  void _onMatch() => setState(() => _showMatch = true);
-  void _dismissMatch() => setState(() { _showMatch = false; _currentIndex = 0; });
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFCF9F8),
-      extendBody: true, // For bottom nav bar if it is transparent
-      body: Stack(children: [
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 350),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          child: _showMatch
-            ? MatchScreen(key: const ValueKey('match'), onDismiss: _dismissMatch)
-            : _buildPage(_currentIndex),
-        ),
-      ]),
-      bottomNavigationBar: _showMatch ? null : BottomNavBar(
-        currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
-      ),
+    return StreamBuilder<AuthState>(
+      stream: Supabase.instance.client.auth.onAuthStateChange,
+      builder: (context, snapshot) {
+        // While waiting for the first auth event, show a blank loading screen
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: AppColors.background,
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final session = snapshot.data?.session;
+        if (session != null) {
+          return const AppShell();
+        }
+        return const LoginScreen();
+      },
     );
   }
+}
 
-  Widget _buildPage(int index) {
-    switch (index) {
-      case 0: return HomeScreen(key: const ValueKey('home'), onStartSwipe: _goToSwipe);
-      case 1: return SwipeScreen(key: const ValueKey('swipe'), onMatch: _onMatch);
-      case 2: return MemoryScreen(key: const ValueKey('memory'));
-      case 3: return ProfileScreen(key: const ValueKey('profile'));
-      default: return const SizedBox();
-    }
+// ─── App Shell ────────────────────────────────────────────────────────────────
+
+class AppShell extends StatelessWidget {
+  const AppShell({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const HomeScreen();
   }
 }

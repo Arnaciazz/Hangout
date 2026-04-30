@@ -1,4 +1,4 @@
-package com.decisionly.hangout
+package com.company.shuffle
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,5 +1,5 @@
-name: hangout
-description: "Decisionly - Gamified Social Decision Making App"
+name: shuffle
+description: "Shuffle - Gamified Social Decision Making App"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -15,6 +15,14 @@ dependencies:
   smooth_page_indicator: ^1.2.0+3
   flutter_staggered_animations: ^1.1.1
   cupertino_icons: ^1.0.8
+  supabase_flutter: ^2.8.4
+  firebase_core: ^3.13.0
+  firebase_messaging: ^15.2.5
+  google_sign_in: ^6.2.2
+  url_launcher: ^6.3.1
+  http: ^1.2.2
+  google_maps_flutter: ^2.9.0
+  geolocator: ^13.0.2
 
 dev_dependencies:
   flutter_test:
