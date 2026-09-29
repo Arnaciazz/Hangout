@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  google_fonts: ^6.2.1
+  google_fonts: ^8.1.0
   confetti: ^0.8.0
   shimmer: ^3.0.0
   smooth_page_indicator: ^1.2.0+3
@@ -31,3 +31,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Brand faces, bundled so google_fonts never fetches at runtime
+  # (no fallback-font flash on first launch, works offline). OFL licences
+  # sit beside them and are registered in main.dart.
+  assets:
+    - assets/google_fonts/

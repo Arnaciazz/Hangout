@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/hangout_button.dart';
 
 /// Full-screen map where the user taps to drop a pin.
 /// Returns a [LatLng] when the user confirms, or null if cancelled.
@@ -33,15 +38,17 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   Future<void> _goToCurrentLocation() async {
     setState(() => _locating = true);
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return;
 
-      LocationPermission permission = await Geolocator.checkPermission();
+      var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.deniedForever ||
-          permission == LocationPermission.denied) return;
+          permission == LocationPermission.denied) {
+        return;
+      }
 
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
@@ -103,41 +110,60 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           // ── Top bar ───────────────────────────────────────────────────────
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.x3, vertical: AppSpacing.x2),
               child: Row(
                 children: [
-                  Material(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(40),
-                    elevation: 2,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(40),
-                      onTap: () => Navigator.of(context).pop(null),
-                      child: const Padding(
-                        padding: EdgeInsets.all(10),
-                        child: Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-                      ),
-                    ),
+                  HangoutIconButton(
+                    icon: Icons.arrow_back_rounded,
+                    variant: HangoutIconButtonVariant.surface,
+                    tooltip: 'Back',
+                    size: 44,
+                    onPressed: () => Navigator.of(context).pop(null),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: AppSpacing.x3),
                   Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: AnimatedContainer(
+                      duration: AppMotion.base,
+                      curve: AppMotion.easeOut,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.x4, vertical: AppSpacing.x3),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8)],
-                      ),
-                      child: Text(
-                        _picked == null
-                            ? 'Tap the map to pick a spot'
-                            : 'Lat ${_picked!.latitude.toStringAsFixed(4)}, '
-                              'Lng ${_picked!.longitude.toStringAsFixed(4)}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: _picked == null ? Colors.black45 : Colors.black87,
-                          fontWeight: FontWeight.w500,
+                        color: AppColors.surface,
+                        borderRadius: AppRadius.pillAll,
+                        border: Border.all(
+                          color: _picked == null
+                              ? AppColors.border
+                              : AppColors.paprika200,
                         ),
+                        boxShadow: AppShadows.md,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _picked == null
+                                ? Icons.touch_app_outlined
+                                : Icons.place_rounded,
+                            size: 16,
+                            color: _picked == null
+                                ? AppColors.textFaint
+                                : AppColors.brand,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _picked == null
+                                  ? 'Tap the map to drop a pin'
+                                  : '${_picked!.latitude.toStringAsFixed(4)}, '
+                                      '${_picked!.longitude.toStringAsFixed(4)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: _picked == null
+                                  ? AppTextStyles.caption
+                                  : AppTextStyles.captionStrong,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -146,53 +172,45 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             ),
           ),
 
-          // ── My location FAB ───────────────────────────────────────────────
+          // ── My location ───────────────────────────────────────────────────
           Positioned(
-            right: 16,
-            bottom: 120,
-            child: FloatingActionButton.small(
-              heroTag: 'my_location',
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black87,
-              elevation: 2,
-              onPressed: _locating ? null : _goToCurrentLocation,
-              child: _locating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.my_location_rounded),
-            ),
+            right: AppSpacing.gutter,
+            bottom: 130,
+            child: _locating
+                ? Container(
+                    width: 44,
+                    height: 44,
+                    padding: const EdgeInsets.all(13),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      shape: BoxShape.circle,
+                      boxShadow: AppShadows.md,
+                    ),
+                    child: const CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : HangoutIconButton(
+                    icon: Icons.my_location_rounded,
+                    variant: HangoutIconButtonVariant.surface,
+                    tooltip: 'Use my location',
+                    onPressed: _goToCurrentLocation,
+                  ),
           ),
 
-          // ── Confirm button ────────────────────────────────────────────────
+          // ── Confirm ───────────────────────────────────────────────────────
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
             child: SafeArea(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-                child: AnimatedOpacity(
-                  opacity: _picked != null ? 1.0 : 0.4,
-                  duration: const Duration(milliseconds: 200),
-                  child: ElevatedButton(
-                    onPressed: _picked != null ? _confirm : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1B6D01),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(52),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: const Text(
-                      'Search this area',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                    ),
-                  ),
+                padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
+                    AppSpacing.x3, AppSpacing.gutter, AppSpacing.x4),
+                child: HangoutButton(
+                  label: 'Search around here',
+                  size: HangoutButtonSize.lg,
+                  block: true,
+                  iconLeft: Icons.search_rounded,
+                  onPressed: _picked != null ? _confirm : null,
                 ),
               ),
             ),

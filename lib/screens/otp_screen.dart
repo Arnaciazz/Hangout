@@ -1,11 +1,18 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/hangout_button.dart';
+import '../widgets/hangout_motion.dart';
 
 class OtpScreen extends StatefulWidget {
-  final String phone; // E.164 format e.g. +919876543210
+  final String phone; // E.164, e.g. +919876543210
 
   const OtpScreen({super.key, required this.phone});
 
@@ -13,41 +20,70 @@ class OtpScreen extends StatefulWidget {
   State<OtpScreen> createState() => _OtpScreenState();
 }
 
-class _OtpScreenState extends State<OtpScreen> {
+class _OtpScreenState extends State<OtpScreen>
+    with SingleTickerProviderStateMixin {
   final _authService = AuthService();
 
-  // 6 individual digit controllers + focus nodes
   final _controllers = List.generate(6, (_) => TextEditingController());
   final _focusNodes = List.generate(6, (_) => FocusNode());
+  final _keyNodes = List.generate(6, (_) => FocusNode());
 
   bool _verifying = false;
   bool _resending = false;
-  int _resendCooldown = 30; // seconds
-  late final _ticker = Stream.periodic(const Duration(seconds: 1));
-  late final _tickerSub = _ticker.listen((_) {
-    if (_resendCooldown > 0) setState(() => _resendCooldown--);
-  });
+  int _resendCooldown = 30;
+  Timer? _ticker;
+
+  /// Drives a short horizontal shake when a code is rejected.
+  late final AnimationController _shakeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _startCooldown();
+    for (final node in _focusNodes) {
+      node.addListener(() => setState(() {}));
+    }
+  }
+
+  void _startCooldown() {
+    _ticker?.cancel();
+    _resendCooldown = 30;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      setState(() => _resendCooldown--);
+      if (_resendCooldown <= 0) t.cancel();
+    });
+  }
 
   @override
   void dispose() {
-    for (final c in _controllers) c.dispose();
-    for (final f in _focusNodes) f.dispose();
-    _tickerSub.cancel();
+    for (final c in _controllers) {
+      c.dispose();
+    }
+    for (final f in _focusNodes) {
+      f.dispose();
+    }
+    for (final f in _keyNodes) {
+      f.dispose();
+    }
+    _ticker?.cancel();
+    _shakeCtrl.dispose();
     super.dispose();
   }
 
   String get _otp => _controllers.map((c) => c.text).join();
 
-  // Auto-advance focus to next box on digit entry
   void _onDigitChanged(int index, String value) {
+    setState(() {});
     if (value.length == 1 && index < 5) {
       _focusNodes[index + 1].requestFocus();
     }
-    // Auto-verify when all 6 digits entered
     if (_otp.length == 6) _verify();
   }
 
-  // Handle backspace — go to previous box
   void _onKeyEvent(int index, KeyEvent event) {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.backspace &&
@@ -66,12 +102,16 @@ class _OtpScreenState extends State<OtpScreen> {
     setState(() => _verifying = false);
 
     if (!result.success) {
-      _showError(result.errorMessage ?? 'Invalid OTP. Please try again.');
-      // Clear all boxes and refocus first
-      for (final c in _controllers) c.clear();
+      _shakeCtrl.forward(from: 0);
+      HapticFeedback.heavyImpact();
+      _showError(result.errorMessage ?? "That code didn't match.");
+      for (final c in _controllers) {
+        c.clear();
+      }
       _focusNodes[0].requestFocus();
+      setState(() {});
     }
-    // Success: main.dart's auth listener navigates away automatically
+    // On success main.dart's auth listener navigates away on its own.
   }
 
   Future<void> _resendOtp() async {
@@ -80,39 +120,30 @@ class _OtpScreenState extends State<OtpScreen> {
 
     final result = await _authService.sendOtp(widget.phone);
     if (!mounted) return;
-    setState(() {
-      _resending = false;
-      if (result.success) _resendCooldown = 30;
-    });
+    setState(() => _resending = false);
 
     if (!result.success) {
-      _showError(result.errorMessage ?? 'Could not resend OTP.');
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('OTP sent again!',
-              style: AppTextStyles.bodySmall.copyWith(color: Colors.white)),
-          backgroundColor: AppColors.primaryGreen,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      _showError(result.errorMessage ?? "We couldn't resend that code.");
+      return;
     }
-  }
 
-  void _showError(String message) {
+    _startCooldown();
+    HapticFeedback.lightImpact();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: AppTextStyles.bodySmall.copyWith(color: Colors.white)),
-        backgroundColor: AppColors.error,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      const SnackBar(
+        content: Text('Code sent again'),
+        backgroundColor: AppColors.accentFresh,
       ),
     );
   }
 
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
+    );
+  }
+
   String get _displayPhone {
-    // Show as +91 XXXXX XXXXX
     if (widget.phone.startsWith('+91') && widget.phone.length == 13) {
       final digits = widget.phone.substring(3);
       return '+91 ${digits.substring(0, 5)} ${digits.substring(5)}';
@@ -123,44 +154,42 @@ class _OtpScreenState extends State<OtpScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.onSurface),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(leading: const HangoutBackButton()),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.x6),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 16),
-              Text('Enter the code', style: AppTextStyles.headlineLarge.copyWith(color: AppColors.onSurface)),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.x4),
+              Text('Enter the code', style: AppTextStyles.h1),
+              const SizedBox(height: AppSpacing.x2),
               RichText(
-                text: TextSpan(
-                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.outline),
-                  children: [
-                    const TextSpan(text: 'We sent a 6-digit code to '),
-                    TextSpan(
-                      text: _displayPhone,
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AppColors.onSurface,
-                        fontWeight: FontWeight.w700,
+                  text: TextSpan(
+                    style: AppTextStyles.small,
+                    children: [
+                      const TextSpan(text: 'We texted a 6-digit code to '),
+                      TextSpan(
+                        text: _displayPhone,
+                        style: AppTextStyles.smallStrong
+                            .copyWith(color: AppColors.textStrong),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 40),
+              const SizedBox(height: AppSpacing.x10),
               _buildOtpBoxes(),
-              const SizedBox(height: 32),
-              _buildVerifyButton(),
-              const SizedBox(height: 24),
+              const SizedBox(height: AppSpacing.x8),
+              HangoutButton(
+                  label: 'Verify & continue',
+                  size: HangoutButtonSize.lg,
+                  block: true,
+                  loading: _verifying,
+                  onPressed: _otp.length == 6 ? _verify : null,
+                ),
+              const SizedBox(height: AppSpacing.x6),
               _buildResendRow(),
             ],
           ),
@@ -170,102 +199,101 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 
   Widget _buildOtpBoxes() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: List.generate(6, (i) {
-        return SizedBox(
-          width: 48,
-          height: 60,
-          child: KeyboardListener(
-            focusNode: FocusNode(),
-            onKeyEvent: (event) => _onKeyEvent(i, event),
-            child: TextFormField(
-              controller: _controllers[i],
-              focusNode: _focusNodes[i],
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              maxLength: 1,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              style: AppTextStyles.headlineSmall.copyWith(color: AppColors.onSurface),
-              decoration: InputDecoration(
-                counterText: '',
-                filled: true,
-                fillColor: AppColors.surface,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppColors.cardBorder, width: 1.5),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppColors.cardBorder, width: 1.5),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppColors.primaryGreen, width: 2.5),
-                ),
-              ),
-              onChanged: (v) => _onDigitChanged(i, v),
-            ),
-          ),
-        );
-      }),
-    );
-  }
+    return AnimatedBuilder(
+      animation: _shakeCtrl,
+      builder: (context, child) {
+        // Two decaying oscillations, so a wrong code reads as a head-shake.
+        final t = _shakeCtrl.value;
+        final dx = math.sin(t * math.pi * 4) * 10 * (1 - t);
+        return Transform.translate(offset: Offset(dx, 0), child: child);
+      },
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: List.generate(6, (i) {
+          final focused = _focusNodes[i].hasFocus;
+          final filled = _controllers[i].text.isNotEmpty;
 
-  Widget _buildVerifyButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        onPressed: (_verifying || _otp.length != 6) ? null : _verify,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryGreen,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: AppColors.primaryGreen.withOpacity(0.4),
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-        child: _verifying
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-              )
-            : Text(
-                'Verify & Continue',
-                style: AppTextStyles.button.copyWith(color: Colors.white),
+          return AnimatedContainer(
+            duration: AppMotion.base,
+            curve: AppMotion.easeOut,
+            width: 48,
+            height: 60,
+            decoration: BoxDecoration(
+              color: filled ? AppColors.brandTint : AppColors.surface,
+              borderRadius: AppRadius.mdAll,
+              border: Border.all(
+                color: focused
+                    ? AppColors.focusRing
+                    : (filled ? AppColors.paprika200 : AppColors.border),
+                width: 1.5,
               ),
+              // The design system's focus treatment: a 4px brand-tint halo.
+              boxShadow: focused
+                  ? [
+                      BoxShadow(
+                        color: AppColors.brandTint,
+                        blurRadius: 0,
+                        spreadRadius: 4,
+                      ),
+                    ]
+                  : AppShadows.sm,
+            ),
+            child: KeyboardListener(
+              focusNode: _keyNodes[i],
+              onKeyEvent: (event) => _onKeyEvent(i, event),
+              child: TextFormField(
+                controller: _controllers[i],
+                focusNode: _focusNodes[i],
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                maxLength: 1,
+                showCursor: false,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                style: AppTextStyles.statNumber(24),
+                decoration: const InputDecoration(
+                  counterText: '',
+                  filled: false,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onChanged: (v) => _onDigitChanged(i, v),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
 
   Widget _buildResendRow() {
-    final canResend = _resendCooldown == 0 && !_resending;
+    final canResend = _resendCooldown <= 0 && !_resending;
+
     return Center(
       child: _resending
           ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : GestureDetector(
+              width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          : Pressable(
               onTap: canResend ? _resendOtp : null,
-              child: RichText(
-                text: TextSpan(
-                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.outline),
-                  children: [
-                    const TextSpan(text: "Didn't receive it? "),
-                    TextSpan(
-                      text: canResend
-                          ? 'Resend OTP'
-                          : 'Resend in ${_resendCooldown}s',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: canResend ? AppColors.primaryGreen : AppColors.outline,
-                        fontWeight: FontWeight.w700,
-                        decoration: canResend ? TextDecoration.underline : null,
+              scale: 0.96,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.x2),
+                child: RichText(
+                  text: TextSpan(
+                    style: AppTextStyles.small,
+                    children: [
+                      const TextSpan(text: "Didn't get it? "),
+                      TextSpan(
+                        text: canResend
+                            ? 'Send it again'
+                            : 'Resend in ${_resendCooldown}s',
+                        style: AppTextStyles.smallStrong.copyWith(
+                          color: canResend ? AppColors.brand : AppColors.textFaint,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

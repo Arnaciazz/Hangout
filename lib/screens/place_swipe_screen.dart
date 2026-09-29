@@ -1,15 +1,40 @@
 import 'dart:async';
-import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../models/group.dart';
 import '../models/place.dart';
 import '../services/session_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/hangout_avatar.dart';
+import '../widgets/hangout_button.dart';
+import '../widgets/hangout_card.dart';
+import '../widgets/hangout_chips.dart';
+import '../widgets/hangout_list.dart';
 
+/// The swipe deck.
+///
+/// Photography is the whole point here, so the stage sits on warm ink
+/// (`sand-900`) and every label over an image rides on a protection gradient.
+/// Cards drag with rotation, stamp I'm in / Nope progressively as you pull, and
+/// fly off on release rather than snapping.
 class PlaceSwipeScreen extends StatefulWidget {
   final SessionModel session;
   final Group? group;
 
-  const PlaceSwipeScreen({super.key, required this.session, this.group});
+  /// Injected in tests; created on first use otherwise.
+  final SessionService? service;
+
+  const PlaceSwipeScreen({
+    super.key,
+    required this.session,
+    this.group,
+    this.service,
+  });
 
   @override
   State<PlaceSwipeScreen> createState() => _PlaceSwipeScreenState();
@@ -17,208 +42,252 @@ class PlaceSwipeScreen extends StatefulWidget {
 
 class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     with TickerProviderStateMixin {
-  final SessionService _service = SessionService();
+  late final SessionService _service = widget.service ?? SessionService();
 
   int _currentIndex = 0;
-  bool _swiping = false; // debounce
+  bool _swiping = false;
 
-  // Photo index per card (tap left/right to navigate)
   final Map<int, int> _photoIndex = {};
 
-  // Group realtime progress
   StreamSubscription<({int membersFinished, int totalMembers})>? _progressSub;
   ({int membersFinished, int totalMembers})? _groupProgress;
 
-  // Drag state
   Offset _dragOffset = Offset.zero;
   bool _dragging = false;
 
-  late final AnimationController _cardAnim;
-  late final AnimationController _overlayAnim;
+  /// Drives the fly-off when a card is committed.
+  late final AnimationController _flyCtrl = AnimationController(
+    vsync: this,
+    duration: AppMotion.slow,
+  );
+  Animation<Offset>? _flyAnim;
 
-  String? _lastDirection; // 'yes' | 'no' shown as overlay
+  final _detailsKey = GlobalKey();
+  final _scrollController = ScrollController();
 
   List<Place> get _places => widget.session.places;
   Place? get _current =>
       _currentIndex < _places.length ? _places[_currentIndex] : null;
+  Place? get _next =>
+      _currentIndex + 1 < _places.length ? _places[_currentIndex + 1] : null;
 
   @override
   void initState() {
     super.initState();
-    _cardAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 280),
-    );
-    _overlayAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    // Start realtime progress tracking for group sessions
     final g = widget.group;
     if (g != null) {
       _progressSub = _service
           .watchGroupProgress(widget.session.id, g.id)
           .listen((p) {
-        if (mounted) setState(() => _groupProgress = p);
-      });
+            if (mounted) setState(() => _groupProgress = p);
+          });
     }
   }
 
   @override
   void dispose() {
     _progressSub?.cancel();
-    _cardAnim.dispose();
-    _overlayAnim.dispose();
+    _flyCtrl.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  // ── Swipe logic ────────────────────────────────────────────────────────────
+  // ─── Swipe ─────────────────────────────────────────────────────────────────
+
+  /// -1 … 1 — how committed the current drag is. Drives the stamps and the
+  /// tint on the action buttons.
+  double get _dragProgress {
+    final w = MediaQuery.of(context).size.width;
+    return (_dragOffset.dx / (w * 0.35)).clamp(-1.0, 1.0);
+  }
 
   Future<void> _swipe(String direction) async {
-    if (_swiping || _current == null) return;
-    if (_current!.id == null) return; // no Supabase ID, can't record
+    if (_swiping || _current == null || _current!.id == null) return;
 
-    setState(() {
-      _swiping = true;
-      _lastDirection = direction;
-    });
+    setState(() => _swiping = true);
+    HapticFeedback.mediumImpact();
 
-    _overlayAnim.forward(from: 0);
+    // Fly the card off in the direction of travel before advancing.
+    final width = MediaQuery.of(context).size.width;
+    final target = Offset(
+      direction == 'yes' ? width * 1.4 : -width * 1.4,
+      _dragOffset.dy - 40,
+    );
+    _flyAnim = Tween<Offset>(
+      begin: _dragOffset,
+      end: target,
+    ).animate(CurvedAnimation(parent: _flyCtrl, curve: AppMotion.easeOut));
+    unawaited(() async {
+      try {
+        await _service.recordSwipe(
+          sessionId: widget.session.id,
+          placeId: _current!.id!,
+          direction: direction,
+        );
+      } catch (_) {
+        // Fire-and-forget; the service retries in the background.
+      }
+    }());
 
-    try {
-      await _service.recordSwipe(
-        sessionId: widget.session.id,
-        placeId: _current!.id!,
-        direction: direction,
-      );
-    } catch (_) {
-      // Swipe is fire-and-forget; network retry handled in background
-    }
-
-    await Future.delayed(const Duration(milliseconds: 350));
-
+    await _flyCtrl.forward(from: 0);
     if (!mounted) return;
+
     setState(() {
       _currentIndex++;
       _dragOffset = Offset.zero;
-      _lastDirection = null;
+      _flyAnim = null;
       _swiping = false;
     });
-    _overlayAnim.reverse();
+    _flyCtrl.value = 0;
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
 
-    // If all swiped → show results
-    if (_currentIndex >= _places.length) {
-      _showDone();
-    }
+    if (_currentIndex >= _places.length) _showDone();
   }
 
   void _showDone() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => _ResultsScreen(
-          session: widget.session,
-          group: widget.group,
-          service: _service,
+    if (widget.group != null) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder:
+              (_) => _WaitingScreen(
+                session: widget.session,
+                group: widget.group!,
+                service: _service,
+              ),
         ),
-      ),
-    );
+      );
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder:
+              (_) => ResultsScreen(
+                session: widget.session,
+                group: widget.group,
+                service: widget.service,
+              ),
+        ),
+      );
+    }
   }
 
-  // ── Drag gesture ───────────────────────────────────────────────────────────
-
-  void _onPanStart(DragStartDetails d) {
+  // Horizontal-only drag, so the details below the hero still scroll freely.
+  void _onDragStart(DragStartDetails d) {
     if (_swiping) return;
     setState(() => _dragging = true);
   }
 
-  void _onPanUpdate(DragUpdateDetails d) {
+  void _onDragUpdate(DragUpdateDetails d) {
     if (!_dragging || _swiping) return;
-    setState(() => _dragOffset += d.delta);
+    setState(() => _dragOffset += Offset(d.delta.dx, d.delta.dx.abs() * 0.06));
   }
 
-  void _onPanEnd(DragEndDetails d) {
+  void _onDragEnd(DragEndDetails d) {
     if (!_dragging) return;
     setState(() => _dragging = false);
-    final threshold = MediaQuery.of(context).size.width * 0.35;
-    if (_dragOffset.dx > threshold) {
+
+    final threshold = MediaQuery.of(context).size.width * 0.3;
+    final flung = d.velocity.pixelsPerSecond.dx.abs() > 700;
+
+    if (_dragOffset.dx > threshold || (flung && _dragOffset.dx > 0)) {
       _swipe('yes');
-    } else if (_dragOffset.dx < -threshold) {
+    } else if (_dragOffset.dx < -threshold || (flung && _dragOffset.dx < 0)) {
       _swipe('no');
     } else {
       setState(() => _dragOffset = Offset.zero);
     }
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
+  void _scrollToDetails() {
+    final ctx = _detailsKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: AppMotion.slow,
+      curve: AppMotion.easeOut,
+    );
+  }
+
+  // ─── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     if (_places.isEmpty) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0D0D0D),
+      return Scaffold(
+        backgroundColor: AppColors.surfaceInverse,
         body: Center(
-          child: Text('No places found.', style: TextStyle(color: Colors.white60)),
+          child: Text(
+            'Nothing to swipe on yet.',
+            style: AppTextStyles.body.copyWith(color: AppColors.textOnDark),
+          ),
         ),
       );
     }
 
     if (_currentIndex >= _places.length) {
-      // Replaced by results screen — show placeholder
-      return const Scaffold(backgroundColor: Color(0xFF0D0D0D));
+      return const Scaffold(backgroundColor: AppColors.surfaceInverse);
     }
 
-    final place = _places[_currentIndex];
     final size = MediaQuery.of(context).size;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
+      backgroundColor: AppColors.surfaceInverse,
       body: Stack(
         children: [
-          // ── Swipeable card ─────────────────────────────────────────────────
-          GestureDetector(
-            onPanStart: _onPanStart,
-            onPanUpdate: _onPanUpdate,
-            onPanEnd: _onPanEnd,
-            child: AnimatedContainer(
-              duration: _dragging
-                  ? Duration.zero
-                  : const Duration(milliseconds: 240),
-              curve: Curves.elasticOut,
-              transform: Matrix4.translationValues(
-                _dragOffset.dx,
-                _dragOffset.dy * 0.3,
-                0,
-              )..rotateZ(_dragOffset.dx / size.width * 0.2),
-              child: _buildCard(place),
-            ),
-          ),
-
-          // ── Progress bar ───────────────────────────────────────────────────
-          _buildProgressBar(),
-
-          // ── Swipe hint overlay (YES / NO indicator) ────────────────────────
-          if (_lastDirection != null)
+          // The next card peeks through behind the top one, so the deck reads
+          // as a deck.
+          if (_next != null)
             Positioned.fill(
               child: IgnorePointer(
-                child: FadeTransition(
-                  opacity: _overlayAnim,
-                  child: _buildSwipeOverlay(_lastDirection!),
+                child: Transform.scale(
+                  scale: 0.94 + 0.06 * _dragProgress.abs(),
+                  child: Opacity(
+                    opacity: 0.35 + 0.35 * _dragProgress.abs(),
+                    child: _PeekCard(place: _next!),
+                  ),
                 ),
               ),
             ),
 
-          // ── Back button ────────────────────────────────────────────────────
+          GestureDetector(
+            onHorizontalDragStart: _onDragStart,
+            onHorizontalDragUpdate: _onDragUpdate,
+            onHorizontalDragEnd: _onDragEnd,
+            child: AnimatedBuilder(
+              animation: _flyCtrl,
+              builder: (context, child) {
+                final offset = _flyAnim?.value ?? _dragOffset;
+                return Transform(
+                  alignment: Alignment.center,
+                  transform:
+                      Matrix4.identity()
+                        ..translateByDouble(offset.dx, offset.dy, 0, 1)
+                        ..rotateZ(offset.dx / size.width * 0.22),
+                  child: child,
+                );
+              },
+              child: _buildCard(_places[_currentIndex]),
+            ),
+          ),
+
+          _buildProgressBar(),
+          _buildStamps(),
+
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.only(left: 8, top: 8),
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white70),
+              padding: const EdgeInsets.only(
+                left: AppSpacing.x4,
+                top: AppSpacing.x2,
+              ),
+              child: HangoutIconButton(
+                icon: Icons.close_rounded,
+                variant: HangoutIconButtonVariant.glass,
+                tooltip: 'Close',
+                size: 40,
                 onPressed: () => Navigator.of(context).pop(),
               ),
             ),
           ),
 
-          // ── Fixed bottom YES / NO buttons (Bumble-style) ───────────────────
           Positioned(
             left: 0,
             right: 0,
@@ -226,7 +295,6 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
             child: _buildBottomActions(),
           ),
 
-          // ── Group realtime progress strip ──────────────────────────────────
           if (widget.group != null && _groupProgress != null)
             _buildGroupProgressStrip(_groupProgress!),
         ],
@@ -234,34 +302,115 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     );
   }
 
+  /// "I'm in" / "Nope" stamps that grow in as the drag commits.
+  Widget _buildStamps() {
+    final p = _dragProgress;
+    if (p.abs() < 0.02) return const SizedBox.shrink();
+
+    final isYes = p > 0;
+    final strength = p.abs().clamp(0.0, 1.0);
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: SafeArea(
+          child: Align(
+            alignment: isYes ? Alignment.topLeft : Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 90, 24, 0),
+              child: Opacity(
+                opacity: strength,
+                child: Transform.rotate(
+                  angle: (isYes ? -0.18 : 0.18),
+                  child: Transform.scale(
+                    scale: 0.8 + 0.2 * strength,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (isYes
+                                ? AppColors.accentFresh
+                                : AppColors.danger)
+                            .withValues(alpha: 0.16),
+                        borderRadius: AppRadius.mdAll,
+                        border: Border.all(
+                          color:
+                              isYes ? AppColors.accentFresh : AppColors.danger,
+                          width: 3,
+                        ),
+                      ),
+                      child: Text(
+                        isYes ? "I'm in" : 'Nope',
+                        style: AppTextStyles.statNumber(26).copyWith(
+                          color:
+                              isYes
+                                  ? AppColors.avocado300
+                                  : AppColors.paprika300,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBottomActions() {
+    final p = _dragProgress;
+
     return Container(
-      color: const Color(0xFF0D0D0D),
       padding: EdgeInsets.fromLTRB(
-          32, 16, 32, MediaQuery.of(context).padding.bottom + 20),
+        32,
+        AppSpacing.x4,
+        32,
+        MediaQuery.of(context).padding.bottom + 20,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            AppColors.bg.withValues(alpha: 0),
+            AppColors.bg,
+          ],
+        ),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _actionBtn(
-            Icons.close_rounded,
-            const Color(0xFFFF5C5C),
-            const Color(0xFF1A0A0A),
-            size: 60,
-            onTap: () => _swipe('no'),
+          Transform.scale(
+            scale: 1 + (p < 0 ? p.abs() * 0.18 : 0),
+            child: HangoutIconButton(
+              icon: Icons.close_rounded,
+              size: 58,
+              tooltip: 'Pass',
+              iconColor: AppColors.danger,
+              variant: HangoutIconButtonVariant.surface,
+              onPressed: _swiping ? null : () => _swipe('no'),
+            ),
           ),
-          _actionBtn(
-            Icons.favorite_rounded,
-            Colors.white,
-            const Color(0xFF1B6D01),
-            size: 72,
-            onTap: () => _swipe('yes'),
+          Transform.scale(
+            scale: 1 + (p > 0 ? p * 0.18 : 0),
+            child: HangoutIconButton(
+              icon: Icons.favorite_rounded,
+              size: 72,
+              tooltip: "I'm in",
+              variant: HangoutIconButtonVariant.fresh,
+              onPressed: _swiping ? null : () => _swipe('yes'),
+            ),
           ),
-          _actionBtn(
-            Icons.info_outline_rounded,
-            Colors.white70,
-            const Color(0xFF1A1A1A),
-            size: 60,
-            onTap: _scrollToDetails,
+          HangoutIconButton(
+            icon: Icons.info_outline_rounded,
+            size: 58,
+            tooltip: 'Details',
+            variant: HangoutIconButtonVariant.surface,
+            iconColor: AppColors.textMuted,
+            onPressed: _scrollToDetails,
           ),
         ],
       ),
@@ -275,19 +424,27 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
       right: 0,
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(52, 16, 20, 0),
+          padding: const EdgeInsets.fromLTRB(
+            72,
+            AppSpacing.x5,
+            AppSpacing.x5,
+            0,
+          ),
           child: Row(
             children: List.generate(_places.length, (i) {
               return Expanded(
-                child: Container(
+                child: AnimatedContainer(
+                  duration: AppMotion.base,
+                  curve: AppMotion.easeOut,
                   height: 3,
                   margin: const EdgeInsets.symmetric(horizontal: 2),
                   decoration: BoxDecoration(
-                    color: i < _currentIndex
-                        ? Colors.white
-                        : i == _currentIndex
-                            ? Colors.white54
-                            : Colors.white.withOpacity(0.18),
+                    color:
+                        i < _currentIndex
+                            ? AppColors.brand
+                            : i == _currentIndex
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.24),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -299,105 +456,72 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     );
   }
 
-  Widget _buildSwipeOverlay(String direction) {
-    final isYes = direction == 'yes';
-    return Container(
-      alignment: isYes ? Alignment.centerRight : Alignment.centerLeft,
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: BoxDecoration(
-          color: isYes
-              ? const Color(0xFF2B6C00).withOpacity(0.9)
-              : const Color(0xFF8C1A00).withOpacity(0.9),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isYes ? const Color(0xFF5AFF3A) : const Color(0xFFFF5C5C),
-            width: 2,
-          ),
-        ),
-        child: Text(
-          isYes ? '❤️  YES' : '✕  NOPE',
-          style: TextStyle(
-            color: isYes ? const Color(0xFF5AFF3A) : const Color(0xFFFF5C5C),
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 2,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGroupProgressStrip(({int membersFinished, int totalMembers}) progress) {
+  Widget _buildGroupProgressStrip(
+    ({int membersFinished, int totalMembers}) progress,
+  ) {
     final done = progress.membersFinished;
     final total = progress.totalMembers;
     final allDone = done >= total;
+
     return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            color: Colors.black.withOpacity(0.55),
-            padding: EdgeInsets.fromLTRB(
-              20, 12, 20, MediaQuery.of(context).padding.bottom + 12),
-            child: Row(
-              children: [
-                Icon(
-                  allDone ? Icons.check_circle_rounded : Icons.people_alt_rounded,
-                  color: allDone ? const Color(0xFF5AFF3A) : Colors.white70,
-                  size: 20,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        allDone
-                            ? 'Everyone has voted!'
-                            : '$done of $total members finished',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: total > 0 ? done / total : 0,
-                          minHeight: 4,
-                          backgroundColor: Colors.white24,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            allDone ? const Color(0xFF5AFF3A) : Colors.white70,
-                          ),
-                        ),
-                      ),
-                    ],
+      top: MediaQuery.of(context).padding.top + 54,
+      left: AppSpacing.gutter,
+      right: AppSpacing.gutter,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.x4,
+            vertical: AppSpacing.x2,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.14),
+            borderRadius: AppRadius.pillAll,
+            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                allDone ? Icons.check_circle_rounded : Icons.people_alt_rounded,
+                color: allDone ? AppColors.avocado300 : Colors.white,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  allDone ? "Everyone's voted" : '$done of $total friends done',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.captionStrong.copyWith(
+                    color: Colors.white,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
+  // ─── Card ──────────────────────────────────────────────────────────────────
+
   Widget _buildCard(Place place) {
-    final bottomBarHeight = MediaQuery.of(context).padding.bottom + 112.0;
+    final bottomBarHeight = MediaQuery.of(context).padding.bottom + 116.0;
+
     return CustomScrollView(
+      controller: _scrollController,
+      physics: const BouncingScrollPhysics(),
       slivers: [
         SliverToBoxAdapter(child: _buildHero(place)),
         SliverToBoxAdapter(child: _buildDetails(place)),
-        // space so content isn't hidden behind fixed bottom bar
-        SliverToBoxAdapter(child: SizedBox(height: bottomBarHeight)),
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: ColoredBox(
+            color: AppColors.bg,
+            child: SizedBox(height: bottomBarHeight),
+          ),
+        ),
       ],
     );
   }
@@ -408,56 +532,50 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     final photoIdx = _photoIndex[_currentIndex] ?? 0;
 
     return SizedBox(
-      height: size.height * 0.65,
+      height: (size.height * 0.66).roundToDouble(),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Current photo with crossfade ────────────────────────────────
-          // Use BoxFit.contain so landscape photos aren't cropped awkwardly;
-          // dark background fills the letterbox areas.
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            child: photos != null
-                ? Image.network(
-                    photos[photoIdx].url,
-                    key: ValueKey('${_currentIndex}_$photoIdx'),
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => _placeholderBg(place),
-                    loadingBuilder: (ctx, child, prog) =>
-                        prog == null ? child : _placeholderBg(place),
-                  )
-                : _placeholderBg(place),
+            duration: AppMotion.base,
+            // Expand every child so BoxFit.cover fills the hero; the default
+            // loose Stack letterboxes landscape photos.
+            layoutBuilder: (current, previous) => Stack(
+              fit: StackFit.expand,
+              children: [...previous, if (current != null) current],
+            ),
+            child:
+                photos != null
+                    ? Image.network(
+                      photos[photoIdx].url,
+                      key: ValueKey('${_currentIndex}_$photoIdx'),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _placeholderBg(place),
+                      loadingBuilder:
+                          (ctx, child, prog) =>
+                              prog == null ? child : _placeholderBg(place),
+                    )
+                    : _placeholderBg(place),
           ),
 
-          // Gradient overlay
-          IgnorePointer(
+          // Text over photography always sits on a protection gradient.
+          const IgnorePointer(
             child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.3),
-                    Colors.black.withOpacity(0.85),
-                  ],
-                  stops: const [0.45, 0.7, 1.0],
-                ),
-              ),
+              decoration: BoxDecoration(gradient: AppColors.photoScrim),
             ),
           ),
 
-          // ── Tap left half / right half to navigate photos ───────────────
           if (photos != null && photos.length > 1) ...[
             Positioned(
               top: 0,
               left: 0,
               right: size.width / 2,
-              bottom: 100,
+              bottom: 140,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
                   if (photoIdx > 0) {
+                    HapticFeedback.selectionClick();
                     setState(() => _photoIndex[_currentIndex] = photoIdx - 1);
                   }
                 },
@@ -467,22 +585,19 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
               top: 0,
               left: size.width / 2,
               right: 0,
-              bottom: 100,
+              bottom: 140,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
                   if (photoIdx < photos.length - 1) {
+                    HapticFeedback.selectionClick();
                     setState(() => _photoIndex[_currentIndex] = photoIdx + 1);
                   }
                 },
               ),
             ),
-          ],
-
-          // ── Photo dot indicators ────────────────────────────────────────
-          if (photos != null && photos.length > 1)
             Positioned(
-              top: 12,
+              top: MediaQuery.of(context).padding.top + 90,
               left: 0,
               right: 0,
               child: IgnorePointer(
@@ -491,12 +606,16 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
                   children: List.generate(photos.length, (i) {
                     final active = photoIdx == i;
                     return AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
+                      duration: AppMotion.base,
+                      curve: AppMotion.easeOut,
                       margin: const EdgeInsets.symmetric(horizontal: 3),
                       width: active ? 18 : 6,
-                      height: 6,
+                      height: 5,
                       decoration: BoxDecoration(
-                        color: active ? Colors.white : Colors.white38,
+                        color:
+                            active
+                                ? Colors.white
+                                : Colors.white.withValues(alpha: 0.4),
                         borderRadius: BorderRadius.circular(3),
                       ),
                     );
@@ -504,96 +623,114 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
                 ),
               ),
             ),
+          ],
 
-          // ── Place info overlay at bottom ─────────────────────────────────
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.75),
-                      Colors.black.withOpacity(0.95),
-                    ],
-                    stops: const [0.0, 0.5, 1.0],
-                  ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  40,
+                  AppSpacing.gutter,
+                  // Clear the details sheet, which overlaps the hero's foot.
+                  AppSpacing.x5 + AppRadius.xxl,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 40, 20, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (place.cuisineType != null)
-                        _glassPill(Icons.local_dining, place.cuisineType!),
-                      const SizedBox(height: 8),
-                      Text(
-                        place.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                          shadows: [Shadow(blurRadius: 8, color: Colors.black87)],
-                        ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (place.cuisineType != null) ...[
+                      _overPhotoPill(
+                        Icons.local_dining_rounded,
+                        place.cuisineType!,
                       ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          if (place.rating != null) ...[
-                            _glassPill(Icons.star, '${place.ratingDisplay} ${place.reviewCount}',
-                                isHighlight: true),
-                            const SizedBox(width: 8),
-                          ],
-                          if (place.priceDisplay.isNotEmpty)
-                            _glassPill(Icons.currency_rupee, place.priceDisplay),
-                          if (place.isOpenNow != null) ...[
-                            const SizedBox(width: 8),
-                            _glassPill(
-                              place.isOpenNow! ? Icons.circle : Icons.circle_outlined,
-                              place.openStatusDisplay,
-                            ),
-                          ],
-                        ],
-                      ),
+                      const SizedBox(height: AppSpacing.x2),
                     ],
-                  ),
+                    Text(
+                      place.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.h2.copyWith(color: Colors.white),
+                    ),
+                    const SizedBox(height: AppSpacing.x2),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (place.rating != null)
+                          _overPhotoPill(
+                            Icons.star_rounded,
+                            '${place.ratingDisplay}  ${place.reviewCount}',
+                            highlight: true,
+                          ),
+                        if (place.priceDisplay.isNotEmpty)
+                          _overPhotoPill(
+                            Icons.payments_outlined,
+                            place.priceDisplay,
+                          ),
+                        if (place.isOpenNow != null)
+                          _overPhotoPill(
+                            place.isOpenNow!
+                                ? Icons.schedule_rounded
+                                : Icons.schedule_outlined,
+                            place.openStatusDisplay,
+                            fresh: place.isOpenNow!,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              height: AppRadius.xxl,
+              alignment: Alignment.topCenter,
+              padding: const EdgeInsets.only(top: 10),
+              decoration: const BoxDecoration(
+                color: AppColors.bg,
+                borderRadius: AppRadius.sheetTop,
+              ),
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.borderStrong,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  final _scrollKey = GlobalKey();
-  void _scrollToDetails() {
-    Scrollable.ensureVisible(
-      _scrollKey.currentContext ?? context,
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOut,
     );
   }
 
   Widget _placeholderBg(Place place) {
     return Container(
-      color: const Color(0xFF1A1A1A),
+      color: AppColors.sand800,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.restaurant, color: Colors.white24, size: 56),
-            const SizedBox(height: 12),
+            Icon(
+              Icons.restaurant_rounded,
+              color: Colors.white.withValues(alpha: 0.22),
+              size: 54,
+            ),
+            const SizedBox(height: AppSpacing.x3),
             Text(
               place.name,
-              style: const TextStyle(color: Colors.white38, fontSize: 16),
+              style: AppTextStyles.small.copyWith(
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
             ),
           ],
         ),
@@ -601,243 +738,329 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     );
   }
 
-  Widget _glassPill(IconData icon, String text, {bool isHighlight = false}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: isHighlight
-                ? const Color(0xFFFD5835).withOpacity(0.9)
-                : Colors.white.withOpacity(0.15),
-            border: Border.all(
-                color: isHighlight ? const Color(0xFFFD5835) : Colors.white24),
-            borderRadius: BorderRadius.circular(20),
+  /// Glass chip for controls and stats floating over photography — the one
+  /// place the design system allows blur.
+  Widget _overPhotoPill(
+    IconData icon,
+    String text, {
+    bool highlight = false,
+    bool fresh = false,
+  }) {
+    final bg =
+        highlight
+            ? Colors.white.withValues(alpha: 0.94)
+            : Colors.white.withValues(alpha: 0.18);
+    final fg = highlight ? AppColors.textStrong : Colors.white;
+    final iconColor =
+        highlight
+            ? AppColors.rating
+            : (fresh ? AppColors.avocado300 : Colors.white);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: AppRadius.pillAll,
+        border:
+            highlight
+                ? null
+                : Border.all(color: Colors.white.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: iconColor, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: AppTextStyles.captionStrong.copyWith(color: fg, height: 1),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon,
-                  color: isHighlight ? const Color(0xFF570C00) : Colors.white,
-                  size: 16),
-              const SizedBox(width: 5),
-              Text(
-                text,
-                style: TextStyle(
-                  color: isHighlight ? const Color(0xFF570C00) : Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
 
-  Widget _actionBtn(IconData icon, Color color, Color bg,
-      {double size = 56, VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(size / 2),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: bg,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white30),
-            ),
-            child: Icon(icon, color: color, size: size * 0.44),
-          ),
-        ),
-      ),
-    );
-  }
+  // ─── Details sheet ─────────────────────────────────────────────────────────
 
   Widget _buildDetails(Place place) {
     return Container(
-      key: _scrollKey,
-      color: const Color(0xFFFCF9F8),
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 100),
+      key: _detailsKey,
+      color: AppColors.bg,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.x2,
+        AppSpacing.gutter,
+        AppSpacing.x16,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 5,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE5E2E1),
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Address
           if (place.address != null) ...[
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.location_on_outlined,
-                    color: Color(0xFF999999), size: 18),
-                const SizedBox(width: 8),
+                const Icon(
+                  Icons.place_outlined,
+                  color: AppColors.textMuted,
+                  size: 18,
+                ),
+                const SizedBox(width: AppSpacing.x2),
                 Expanded(
-                  child: Text(
-                    place.address!,
-                    style: const TextStyle(
-                      color: Color(0xFF666666),
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                  ),
+                  child: Text(place.address!, style: AppTextStyles.small),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
           ],
 
-          // Reviews
           if (place.reviews.isNotEmpty) ...[
-            const Text(
-              'What people say',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1C1B1B),
-              ),
+            const SizedBox(height: AppSpacing.x8),
+            const SectionHeader(title: 'What people say'),
+            const SizedBox(height: AppSpacing.x3),
+            HangoutListGroup(
+              children: [
+                for (final r in place.reviews.take(3)) _ReviewTile(review: r),
+              ],
             ),
-            const SizedBox(height: 14),
-            ...place.reviews.take(3).map((r) => _buildReviewTile(r)),
           ],
         ],
       ),
     );
   }
+}
 
-  Widget _buildReviewTile(PlaceReview review) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFEEEEEE)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+// ─── Peeking next card ────────────────────────────────────────────────────────
+
+class _PeekCard extends StatelessWidget {
+  final Place place;
+
+  const _PeekCard({required this.place});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (place.mainPhotoUrl.isNotEmpty)
+          Image.network(
+            place.mainPhotoUrl,
+            fit: BoxFit.cover,
+            errorBuilder:
+                (_, __, ___) => const ColoredBox(color: AppColors.sand800),
+          )
+        else
+          const ColoredBox(color: AppColors.sand800),
+        const DecoratedBox(
+          decoration: BoxDecoration(gradient: AppColors.photoScrim),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Review tile ──────────────────────────────────────────────────────────────
+
+class _ReviewTile extends StatelessWidget {
+  final PlaceReview review;
+
+  const _ReviewTile({required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: const Color(0xFFF0EEE8),
-                child: Text(
-                  review.authorName.isNotEmpty
-                      ? review.authorName[0].toUpperCase()
-                      : '?',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF555555),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
+              HangoutAvatar(name: review.authorName, size: 32),
+              const SizedBox(width: AppSpacing.x2),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       review.authorName,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1C1B1B),
-                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.captionStrong,
                     ),
                     if (review.relativeTime != null)
-                      Text(
-                        review.relativeTime!,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF999999),
-                        ),
-                      ),
+                      Text(review.relativeTime!, style: AppTextStyles.caption),
                   ],
                 ),
               ),
-              if (review.rating != null)
-                Row(
-                  children: [
-                    const Icon(Icons.star, color: Color(0xFFFD5835), size: 14),
-                    const SizedBox(width: 3),
-                    Text(
-                      review.rating!.toStringAsFixed(0),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1C1B1B),
-                      ),
-                    ),
-                  ],
-                ),
+              if (review.rating != null) HangoutBadge.rating(review.rating!),
             ],
           ),
           if (review.text.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: AppSpacing.x3),
             Text(
               review.text,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF555555),
-                height: 1.5,
-              ),
+              style: AppTextStyles.small,
             ),
           ],
         ],
       ),
     );
   }
-
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Results Screen
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Waiting on the crew ──────────────────────────────────────────────────────
 
-class _ResultsScreen extends StatefulWidget {
+class _WaitingScreen extends StatefulWidget {
   final SessionModel session;
-  final Group? group;
+  final Group group;
   final SessionService service;
 
-  const _ResultsScreen({
+  const _WaitingScreen({
     required this.session,
     required this.group,
     required this.service,
   });
 
   @override
-  State<_ResultsScreen> createState() => _ResultsScreenState();
+  State<_WaitingScreen> createState() => _WaitingScreenState();
 }
 
-class _ResultsScreenState extends State<_ResultsScreen> {
+class _WaitingScreenState extends State<_WaitingScreen> {
+  StreamSubscription<({int membersFinished, int totalMembers})>? _sub;
+  ({int membersFinished, int totalMembers})? _progress;
+  bool _navigating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.service
+        .watchGroupProgress(widget.session.id, widget.group.id)
+        .listen((p) async {
+          if (!mounted) return;
+          setState(() => _progress = p);
+
+          if (p.membersFinished >= p.totalMembers && !_navigating) {
+            _navigating = true;
+            try {
+              final results = await widget.service.computeResults(
+                widget.session.id,
+              );
+              if (!mounted) return;
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder:
+                      (_) => ResultsScreen(
+                        session: widget.session,
+                        group: widget.group,
+                        service: widget.service,
+                        precomputedResults: results,
+                      ),
+                ),
+              );
+            } catch (_) {
+              if (mounted) setState(() => _navigating = false);
+            }
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final done = _progress?.membersFinished ?? 0;
+    final total = _progress?.totalMembers ?? widget.group.members.length;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        leading: HangoutBackButton(
+          icon: Icons.close_rounded,
+          onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          AppSpacing.x6,
+          AppSpacing.gutter,
+          AppSpacing.x8,
+        ),
+        children: [
+          const Icon(
+            Icons.check_circle_rounded,
+            size: 40,
+            color: AppColors.accentFresh,
+          ),
+          const SizedBox(height: AppSpacing.x4),
+          Text('You’re in ✓', style: AppTextStyles.h1),
+          const SizedBox(height: 4),
+          Text(
+            'Results land as soon as everyone in ${widget.group.name} is done '
+            'swiping. We’ll bring you straight there.',
+            style: AppTextStyles.body,
+          ),
+          const SizedBox(height: AppSpacing.x8),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(
+                      begin: 0,
+                      end: total > 0 ? done / total : 0,
+                    ),
+                    duration: AppMotion.slow,
+                    curve: AppMotion.easeOut,
+                    builder:
+                        (context, v, _) => LinearProgressIndicator(
+                          value: v,
+                          minHeight: 6,
+                          backgroundColor: AppColors.surfaceSunken,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            AppColors.accentFresh,
+                          ),
+                        ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.x3),
+              Text('$done of $total done', style: AppTextStyles.smallStrong),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Results ──────────────────────────────────────────────────────────────────
+
+class ResultsScreen extends StatefulWidget {
+  final SessionModel session;
+  final Group? group;
+  /// Needed only to compute results that weren't passed in.
+  final SessionService? service;
+  final List<PlaceResult>? precomputedResults;
+
+  const ResultsScreen({
+    super.key,
+    required this.session,
+    required this.group,
+    this.service,
+    this.precomputedResults,
+  });
+
+  @override
+  State<ResultsScreen> createState() => _ResultsScreenState();
+}
+
+class _ResultsScreenState extends State<ResultsScreen> {
   List<PlaceResult>? _results;
   bool _loading = true;
   String? _error;
@@ -845,21 +1068,27 @@ class _ResultsScreenState extends State<_ResultsScreen> {
   @override
   void initState() {
     super.initState();
-    _compute();
+    if (widget.precomputedResults != null) {
+      _results = widget.precomputedResults;
+      _loading = false;
+    } else {
+      _compute();
+    }
   }
 
   Future<void> _compute() async {
     try {
-      final results = await widget.service.computeResults(widget.session.id);
+      final results = await (widget.service ?? SessionService())
+          .computeResults(widget.session.id);
       if (!mounted) return;
       setState(() {
         _results = results;
         _loading = false;
       });
-    } on Exception catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = "We couldn't tally the votes.";
         _loading = false;
       });
     }
@@ -868,168 +1097,180 @@ class _ResultsScreenState extends State<_ResultsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(child: _buildBody()),
-          ],
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        leading: HangoutBackButton(
+          icon: Icons.close_rounded,
+          onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
         ),
       ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Results',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.home_outlined, color: Colors.white70),
-            onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
-          ),
-        ],
-      ),
+      body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
-    if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: Color(0xFFFD5835)));
-    }
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
     if (_error != null) {
       return Center(
-        child: Text(_error!,
-            style: const TextStyle(color: Colors.white54), textAlign: TextAlign.center),
-      );
-    }
-    if (_results == null || _results!.isEmpty) {
-      return const Center(
-        child: Text('No results yet.',
-            style: TextStyle(color: Colors.white54, fontSize: 16)),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.x8),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body,
+          ),
+        ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      itemCount: _results!.length,
-      itemBuilder: (ctx, i) => _buildResultTile(_results![i], i),
+    if (_results == null || _results!.isEmpty) {
+      return Center(
+        child: Text('Nobody voted yet.', style: AppTextStyles.body),
+      );
+    }
+
+    final shown = _results!.take(10).toList();
+    final winner = shown.first.isWinner ? shown.first : null;
+    final rest = winner == null ? shown : shown.sublist(1);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.x2,
+        AppSpacing.gutter,
+        AppSpacing.x10,
+      ),
+      children: [
+        Text(
+          winner != null ? 'It’s decided' : 'No clear winner',
+          style: AppTextStyles.h1,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          winner != null
+              ? (widget.group != null
+                  ? '${widget.group!.name} picked a place.'
+                  : 'Here’s where you’re going.')
+              : 'Nobody said yes to anything this round.',
+          style: AppTextStyles.body,
+        ),
+        const SizedBox(height: AppSpacing.x6),
+        if (winner != null) _WinnerCard(result: winner, onBook: _openBooking),
+        if (rest.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.x8),
+          SectionHeader(title: winner != null ? 'Runners-up' : 'How it went'),
+          const SizedBox(height: AppSpacing.x2),
+          HangoutListGroup(
+            children: [
+              for (final r in rest)
+                HangoutListRow(
+                  leading: ClipRRect(
+                    borderRadius: AppRadius.smAll,
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: HangoutPhoto(url: r.place.mainPhotoUrl),
+                    ),
+                  ),
+                  title: r.place.name,
+                  subtitle: '${r.yesVotes} yes · ${r.noVotes} no',
+                  trailing: Text(
+                    '${r.votePercent.round()}%',
+                    style: AppTextStyles.smallStrong,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 
-  Widget _buildResultTile(PlaceResult r, int i) {
+  Future<void> _openBooking(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+}
+
+/// The payoff. The winner gets the full image-forward treatment and the one
+/// primary action on the screen.
+class _WinnerCard extends StatelessWidget {
+  final PlaceResult result;
+  final ValueChanged<String> onBook;
+
+  const _WinnerCard({required this.result, required this.onBook});
+
+  @override
+  Widget build(BuildContext context) {
+    final place = result.place;
+    final total = result.yesVotes + result.noVotes;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: r.isWinner
-            ? const Color(0xFFFD5835).withOpacity(0.12)
-            : const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: r.isWinner
-              ? const Color(0xFFFD5835).withOpacity(0.5)
-              : Colors.white12,
-          width: r.isWinner ? 1.5 : 1,
-        ),
+        color: AppColors.surface,
+        borderRadius: AppRadius.xlAll,
+        boxShadow: AppShadows.lg,
       ),
-      child: Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Rank badge
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: r.isWinner
-                  ? const Color(0xFFFD5835)
-                  : Colors.white.withOpacity(0.08),
-            ),
-            child: Center(
-              child: r.isWinner
-                  ? const Text('🏆', style: TextStyle(fontSize: 18))
-                  : Text(
-                      '${r.rank}',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
+          AspectRatio(
+            aspectRatio: 16 / 10,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                HangoutPhoto(url: place.mainPhotoUrl),
+                if (place.rating != null)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: HangoutBadge.rating(place.rating!),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(width: 14),
-
-          // Photo thumbnail
-          if (r.place.mainPhotoUrl.isNotEmpty)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.network(
-                r.place.mainPhotoUrl,
-                width: 52,
-                height: 52,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox(width: 52, height: 52),
-              ),
-            ),
-          const SizedBox(width: 14),
-
-          // Name + vote info
-          Expanded(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  r.place.name,
-                  style: TextStyle(
-                    color: r.isWinner ? Colors.white : Colors.white.withOpacity(0.85),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+                  place.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.h2,
+                ),
+                if (place.address != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    place.address!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.small,
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Text(
+                  total == 0
+                      ? 'No votes recorded'
+                      : '${result.yesVotes} of $total said yes',
+                  style: AppTextStyles.smallStrong.copyWith(
+                    color: AppColors.avocado700,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '${r.yesVotes} ❤️  •  ${r.noVotes} ✕',
-                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                const SizedBox(height: AppSpacing.x5),
+                HangoutButton(
+                  label: 'Find it on Dineout',
+                  size: HangoutButtonSize.lg,
+                  block: true,
+                  iconRight: Icons.open_in_new_rounded,
+                  onPressed: () => onBook(place.dineoutUrl),
                 ),
               ],
-            ),
-          ),
-
-          // Vote percentage
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: r.isWinner
-                  ? const Color(0xFFFD5835).withOpacity(0.2)
-                  : Colors.white.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '${r.votePercent.round()}%',
-              style: TextStyle(
-                color: r.isWinner ? const Color(0xFFFD5835) : Colors.white54,
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-              ),
             ),
           ),
         ],

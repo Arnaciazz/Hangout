@@ -117,7 +117,7 @@ class Place {
   String get mainPhotoUrl => photos.isNotEmpty ? photos.first.url : '';
 
   String get openStatusDisplay =>
-      isOpenNow == null ? '' : (isOpenNow! ? 'Open Now' : 'Closed');
+      isOpenNow == null ? '' : (isOpenNow! ? 'Open now' : 'Closed');
 
   String get ratingDisplay =>
       rating != null ? rating!.toStringAsFixed(1) : '—';

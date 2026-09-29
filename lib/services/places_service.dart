@@ -76,7 +76,7 @@ class PlacesService {
     required double lng,
     required String mode, // 'hunger' | 'travel'
     int radiusMeters = 3000,
-    int maxResults = 20,
+    int maxResults = 10,
     List<String>? includedTypes, // override default types for the mode
     int? maxPriceLevel,          // 1-4; null = any
     bool openNowOnly = false,

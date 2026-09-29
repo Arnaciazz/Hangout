@@ -1,141 +1,201 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../services/auth_service.dart';
+import '../services/history_service.dart';
+import '../services/profile_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
-import '../models/user_profile.dart';
-import '../widgets/bento_card.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/dino_avatar.dart';
+import '../widgets/hangout_chips.dart';
+import '../widgets/hangout_list.dart';
+import 'avatar_setup_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+/// The signed-in person: who they are to their crews, and the account exits.
+class ProfileScreen extends StatefulWidget {
+  /// Bumped by the shell when this tab is re-entered.
+  final int refreshToken;
+
+  const ProfileScreen({super.key, this.refreshToken = 0});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _profiles = ProfileService();
+  final _history = HistoryService();
+
+  Map<String, dynamic>? _profile;
+  ({int hangouts, int crews})? _counts;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfileScreen old) {
+    super.didUpdateWidget(old);
+    if (old.refreshToken != widget.refreshToken) _load();
+  }
+
+  Future<void> _load() async {
+    final results = await Future.wait([
+      _profiles.fetchProfile(),
+      _history.fetchCounts(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _profile = results[0] as Map<String, dynamic>?;
+      _counts = results[1] as ({int hangouts, int crews});
+    });
+  }
+
+  Future<void> _edit() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (ctx) => AvatarSetupScreen(
+        initialNickname: _profile?['nickname'] as String?,
+        initialAvatarId: _profile?['avatar_id'] as int?,
+        onSetupComplete: () => Navigator.of(ctx).pop(),
+      ),
+    ));
+    _load();
+  }
 
   @override
   Widget build(BuildContext context) {
-    const u = SampleUser.alex;
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 120),
-      child: Column(children: [
-        _profileHeader(u),
-        const SizedBox(height: 24),
-        _statsRow(u),
-        const SizedBox(height: 20),
-        _achievementsCard(),
-        const SizedBox(height: 20),
-        _menuList(),
-      ]),
+    final user = Supabase.instance.client.auth.currentUser;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: ProfileView(
+          nickname: _profile?['nickname'] as String?,
+          avatarId: _profile?['avatar_id'] as int?,
+          photoUrl: user?.userMetadata?['avatar_url'] as String?,
+          contact: user?.email ?? user?.phone,
+          hangouts: _counts?.hangouts,
+          crews: _counts?.crews,
+          onEdit: _edit,
+          onLogOut: () => AuthService().signOut(),
+        ),
+      ),
     );
   }
+}
 
-  Widget _profileHeader(UserProfile u) {
-    return Column(children: [
-      Container(
-        width: 96, height: 96,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: AppColors.purpleGradient,
-          border: Border.all(color: AppColors.secondaryPurple, width: 3),
-          boxShadow: [BoxShadow(color: AppColors.secondaryPurple.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 8))],
+/// Pure presentation of the profile — renders with fixtures in tests.
+/// A null count means "still loading".
+class ProfileView extends StatelessWidget {
+  final String? nickname;
+  final int? avatarId;
+  final String? photoUrl;
+  final String? contact;
+  final int? hangouts;
+  final int? crews;
+  final VoidCallback? onEdit;
+  final VoidCallback? onLogOut;
+
+  const ProfileView({
+    super.key,
+    this.nickname,
+    this.avatarId,
+    this.photoUrl,
+    this.contact,
+    this.hangouts,
+    this.crews,
+    this.onEdit,
+    this.onLogOut,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = nickname ?? '';
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        MediaQuery.of(context).padding.top + AppSpacing.x5,
+        AppSpacing.gutter,
+        120,
+      ),
+      children: [
+        Text('You', style: AppTextStyles.h1),
+        const SizedBox(height: AppSpacing.x5),
+        Row(
+          children: [
+            UserDinoAvatar(
+              avatarId: avatarId,
+              fallbackUrl: photoUrl,
+              fallbackInitial: name.isNotEmpty ? name[0] : '?',
+              size: 64,
+            ),
+            const SizedBox(width: AppSpacing.x4),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? ' ' : '@$name',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.h3,
+                  ),
+                  if (contact != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      contact!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.small,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
-        child: Center(child: Text('A', style: AppTextStyles.headlineLarge.copyWith(color: Colors.white))),
-      ),
-      const SizedBox(height: 16),
-      Text(u.name, style: AppTextStyles.headlineLarge),
-      const SizedBox(height: 4),
-      Text(u.title, style: AppTextStyles.bodyMedium.copyWith(color: AppColors.outline)),
-      const SizedBox(height: 8),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: AppColors.greenGradient,
-          borderRadius: BorderRadius.circular(20),
+        const SizedBox(height: AppSpacing.x6),
+        Row(
+          children: [
+            Expanded(
+              child: StatChip(
+                label: 'Hangouts',
+                value: hangouts?.toString() ?? '–',
+              ),
+            ),
+            const SizedBox(width: AppSpacing.x3),
+            Expanded(
+              child: StatChip(
+                label: 'Crews',
+                value: crews?.toString() ?? '–',
+              ),
+            ),
+          ],
         ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 16),
-          const SizedBox(width: 6),
-          Text('${u.membershipTier} Member', style: AppTextStyles.labelBold.copyWith(color: Colors.white)),
-        ]),
-      ),
-    ]);
-  }
-
-  Widget _statsRow(UserProfile u) {
-    return Row(children: [
-      Expanded(child: BentoCard(borderRadius: 24, padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('🎯', style: const TextStyle(fontSize: 24)),
-        const SizedBox(height: 6),
-        Text('${u.decisionsCount}', style: AppTextStyles.headlineMedium),
-        Text('Decisions', style: AppTextStyles.labelSmall.copyWith(color: AppColors.outline)),
-      ]))),
-      const SizedBox(width: 10),
-      Expanded(child: BentoCard(borderRadius: 24, padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('🔥', style: const TextStyle(fontSize: 24)),
-        const SizedBox(height: 6),
-        Text('${u.streakDays}', style: AppTextStyles.headlineMedium),
-        Text('Day Streak', style: AppTextStyles.labelSmall.copyWith(color: AppColors.outline)),
-      ]))),
-      const SizedBox(width: 10),
-      Expanded(child: BentoCard(borderRadius: 24, padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('👥', style: const TextStyle(fontSize: 24)),
-        const SizedBox(height: 6),
-        Text('${u.friendsCount}', style: AppTextStyles.headlineMedium),
-        Text('Friends', style: AppTextStyles.labelSmall.copyWith(color: AppColors.outline)),
-      ]))),
-    ]);
-  }
-
-  Widget _achievementsCard() {
-    return BentoCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('ACHIEVEMENTS', style: AppTextStyles.labelBold.copyWith(color: AppColors.outline, letterSpacing: 1.5)),
-      const SizedBox(height: 16),
-      Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-        _badge('🏆', 'Top Picker', true),
-        _badge('⚡', 'Speed', true),
-        _badge('🌟', 'Explorer', true),
-        _badge('🎪', 'Host', false),
-      ]),
-    ]));
-  }
-
-  Widget _badge(String emoji, String label, bool unlocked) {
-    return Opacity(opacity: unlocked ? 1 : 0.35, child: Column(children: [
-      Container(
-        width: 56, height: 56,
-        decoration: BoxDecoration(
-          color: unlocked ? AppColors.primaryGreen.withOpacity(0.1) : AppColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: unlocked ? AppColors.primaryGreen.withOpacity(0.3) : AppColors.cardBorder, width: 2),
+        const SizedBox(height: AppSpacing.x8),
+        HangoutListGroup(
+          children: [
+            HangoutListRow(
+              leading: const Icon(Icons.edit_outlined, color: AppColors.textMuted),
+              title: 'Edit name and avatar',
+              showChevron: true,
+              onTap: onEdit,
+            ),
+            HangoutListRow(
+              leading: const Icon(Icons.logout_rounded, color: AppColors.danger),
+              title: 'Log out',
+              titleColor: AppColors.danger,
+              onTap: onLogOut,
+            ),
+          ],
         ),
-        child: Center(child: Text(emoji, style: const TextStyle(fontSize: 28))),
-      ),
-      const SizedBox(height: 6),
-      Text(label, style: AppTextStyles.labelSmall.copyWith(color: unlocked ? AppColors.onSurface : AppColors.outline)),
-    ]));
-  }
-
-  Widget _menuList() {
-    final items = [
-      (Icons.dashboard_rounded, 'Dashboard', AppColors.primaryGreen),
-      (Icons.timer_rounded, 'Active Sessions', AppColors.secondaryPurple),
-      (Icons.history_rounded, 'History', AppColors.tertiaryOrange),
-      (Icons.payments_rounded, 'Expenses', AppColors.primaryGreen),
-      (Icons.settings_rounded, 'Settings', AppColors.outline),
-    ];
-    return Column(children: items.map((item) => Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: BentoCard(
-        borderRadius: 24, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        onTap: () => HapticFeedback.selectionClick(),
-        child: Row(children: [
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(color: item.$3.withOpacity(0.1), borderRadius: BorderRadius.circular(14)),
-            child: Icon(item.$1, color: item.$3, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(child: Text(item.$2, style: AppTextStyles.labelBold)),
-          const Icon(Icons.chevron_right_rounded, color: AppColors.outline),
-        ]),
-      ),
-    )).toList());
+      ],
+    );
   }
 }

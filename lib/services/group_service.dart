@@ -76,7 +76,7 @@ class GroupService {
         .select('*, group_members(user_id, group_id, role, joined_at, profiles(display_name, avatar_url))')
         .eq('id', groupId)
         .single();
-    return Group.fromJson(row as Map<String, dynamic>);
+    return Group.fromJson(row);
   }
 
   // ─── Create group ─────────────────────────────────────────────────────────

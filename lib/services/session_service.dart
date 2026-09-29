@@ -1,7 +1,70 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/place.dart';
+import '../screens/session_filters_screen.dart';
 import 'places_service.dart';
+
+/// A per-member location entry for a group session lobby.
+class SessionLocation {
+  final String id;
+  final String sessionId;
+  final String addedBy;
+  final String placeName;
+  final double? lat;
+  final double? lng;
+  final int radiusKm;
+  final String addedByDisplayName;
+
+  const SessionLocation({
+    required this.id,
+    required this.sessionId,
+    required this.addedBy,
+    required this.placeName,
+    this.lat,
+    this.lng,
+    this.radiusKm = 3,
+    this.addedByDisplayName = '',
+  });
+
+  factory SessionLocation.fromJson(Map<String, dynamic> json) => SessionLocation(
+        id: json['id'] as String,
+        sessionId: json['session_id'] as String,
+        addedBy: json['added_by'] as String,
+        placeName: json['place_name'] as String? ?? '',
+        lat: (json['lat'] as num?)?.toDouble(),
+        lng: (json['lng'] as num?)?.toDouble(),
+        radiusKm: json['radius_km'] as int? ?? 3,
+        addedByDisplayName:
+            (json['profiles'] as Map<String, dynamic>?)?['display_name'] as String? ?? '',
+      );
+}
+
+/// Summary of a past or active group session.
+class SessionSummary {
+  final String id;
+  final String mode;
+  final String status;
+  final DateTime createdAt;
+  final DateTime? completedAt;
+
+  const SessionSummary({
+    required this.id,
+    required this.mode,
+    required this.status,
+    required this.createdAt,
+    this.completedAt,
+  });
+
+  factory SessionSummary.fromJson(Map<String, dynamic> json) => SessionSummary(
+        id: json['id'] as String,
+        mode: json['mode'] as String,
+        status: json['status'] as String,
+        createdAt: DateTime.parse(json['created_at'] as String),
+        completedAt: json['completed_at'] != null
+            ? DateTime.parse(json['completed_at'] as String)
+            : null,
+      );
+}
 
 /// A lightweight value object returned by [SessionService.createSession].
 class SessionModel {
@@ -388,6 +451,181 @@ class SessionService {
         .stream(primaryKey: ['id'])
         .eq('session_id', sessionId)
         .asyncMap((_) => getGroupProgress(sessionId, groupId));
+  }
+
+  // ── Group lobby helpers ────────────────────────────────────────────────────
+
+  /// Add (or replace) the current user's location for a group session.
+  Future<void> addUserLocation({
+    required String sessionId,
+    required double lat,
+    required double lng,
+    String locationName = 'My Location',
+    int radiusKm = 3,
+  }) async {
+    final userId = _db.auth.currentUser!.id;
+    // Remove any existing entry for this user in this session.
+    await _db
+        .from('session_locations')
+        .delete()
+        .eq('session_id', sessionId)
+        .eq('added_by', userId);
+    await _db.from('session_locations').insert({
+      'session_id': sessionId,
+      'added_by': userId,
+      'place_name': locationName,
+      'lat': lat,
+      'lng': lng,
+      'radius_km': radiusKm,
+    });
+  }
+
+  /// Returns all locations that have been submitted for [sessionId],
+  /// joined with the submitter's display name from profiles.
+  Future<List<SessionLocation>> getSessionLocations(String sessionId) async {
+    final rows = await _db
+        .from('session_locations')
+        .select('*, profiles(display_name)')
+        .eq('session_id', sessionId);
+    return (rows as List)
+        .map((r) => SessionLocation.fromJson(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Stream that re-fetches session locations whenever the table changes.
+  Stream<List<SessionLocation>> watchSessionLocations(String sessionId) {
+    return _db
+        .from('session_locations')
+        .stream(primaryKey: ['id'])
+        .eq('session_id', sessionId)
+        .asyncMap((_) => getSessionLocations(sessionId));
+  }
+
+  /// Returns true if the current user has already added a location.
+  Future<bool> hasMyLocation(String sessionId) async {
+    final userId = _db.auth.currentUser!.id;
+    final rows = await _db
+        .from('session_locations')
+        .select('id')
+        .eq('session_id', sessionId)
+        .eq('added_by', userId);
+    return (rows as List).isNotEmpty;
+  }
+
+  /// Watches the status field of a session and emits on every change.
+  Stream<String> watchSessionStatus(String sessionId) {
+    return _db
+        .from('sessions')
+        .stream(primaryKey: ['id'])
+        .eq('id', sessionId)
+        .map((rows) {
+          if ((rows as List).isEmpty) return 'setup';
+          return rows.first['status'] as String;
+        });
+  }
+
+  /// Computes the centroid of all submitted member locations, fetches places,
+  /// persists them, and moves the session to 'swiping'.
+  Future<SessionModel> startGroupSession({
+    required String sessionId,
+    required String groupId,
+    required String mode,
+    required SwipeFilters filters,
+  }) async {
+    final locations = await getSessionLocations(sessionId);
+    final valid = locations.where((l) => l.lat != null && l.lng != null).toList();
+    if (valid.isEmpty) throw Exception('No locations have been added yet.');
+
+    final avgLat = valid.map((l) => l.lat!).reduce((a, b) => a + b) / valid.length;
+    final avgLng = valid.map((l) => l.lng!).reduce((a, b) => a + b) / valid.length;
+
+    final places = await _placesService.fetchNearby(
+      lat: avgLat,
+      lng: avgLng,
+      mode: mode,
+      radiusMeters: filters.radiusMeters,
+      includedTypes: filters.placeTypes.isNotEmpty ? filters.placeTypes : null,
+      maxPriceLevel: filters.maxPrice,
+      openNowOnly: filters.openNowOnly,
+    );
+
+    if (places.isEmpty) {
+      throw Exception(
+          'No ${mode == 'hunger' ? 'restaurants' : 'places'} found near the group. Try adjusting the filters.');
+    }
+
+    final rows = places.map((p) => p.toSupabaseJson(sessionId)).toList();
+    final inserted = await _db.from('suggested_places').insert(rows).select();
+    final savedPlaces = (inserted as List)
+        .map((r) => Place.fromSupabaseJson(r as Map<String, dynamic>))
+        .toList()
+      ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+
+    await _db
+        .from('sessions')
+        .update({'status': 'swiping', 'started_at': DateTime.now().toIso8601String()})
+        .eq('id', sessionId);
+
+    return SessionModel(
+      id: sessionId,
+      groupId: groupId,
+      userId: _db.auth.currentUser!.id,
+      mode: mode,
+      type: 'group',
+      status: 'swiping',
+      places: savedPlaces,
+    );
+  }
+
+  /// Load a session from DB and populate its places.
+  Future<SessionModel> getSessionWithPlaces(String sessionId) async {
+    final row = await _db.from('sessions').select().eq('id', sessionId).single();
+    final session = SessionModel.fromJson(row);
+    final places = await getPlaces(sessionId);
+    return session.copyWith(places: places);
+  }
+
+  /// Active (setup/swiping/revealed) sessions for a group, newest first.
+  Future<List<SessionSummary>> getActiveSessions(String groupId) async {
+    final rows = await _db
+        .from('sessions')
+        .select('id, mode, status, created_at, completed_at')
+        .eq('group_id', groupId)
+        .inFilter('status', ['setup', 'swiping', 'revealed'])
+        .order('created_at', ascending: false)
+        .limit(1);
+    return (rows as List)
+        .map((r) => SessionSummary.fromJson(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Past (completed) sessions for a group, newest first.
+  Future<List<SessionSummary>> getPastSessions(String groupId) async {
+    final rows = await _db
+        .from('sessions')
+        .select('id, mode, status, created_at, completed_at')
+        .eq('group_id', groupId)
+        .eq('status', 'completed')
+        .order('created_at', ascending: false)
+        .limit(10);
+    return (rows as List)
+        .map((r) => SessionSummary.fromJson(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Check if the current user has finished swiping all places in [sessionId].
+  Future<bool> hasCurrentUserFinished(String sessionId) async {
+    final userId = _db.auth.currentUser!.id;
+    final swipes = await _db
+        .from('swipes')
+        .select('id')
+        .eq('session_id', sessionId)
+        .eq('user_id', userId);
+    final places = await _db
+        .from('suggested_places')
+        .select('id')
+        .eq('session_id', sessionId);
+    return (swipes as List).length >= (places as List).length;
   }
 }
 

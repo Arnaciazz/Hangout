@@ -15,8 +15,14 @@ create table if not exists public.profiles (
   avatar_url   text,
   phone        text,
   fcm_token    text,
+  nickname     text,          -- chosen during onboarding
+  avatar_id    int default 0, -- 0-9: which dino avatar the user picked
   created_at   timestamptz default now()
 );
+
+-- Add columns to existing deployments (idempotent)
+alter table public.profiles add column if not exists nickname  text;
+alter table public.profiles add column if not exists avatar_id int default 0;
 
 -- Auto-create profile row when a new user signs up
 create or replace function public.handle_new_user()
