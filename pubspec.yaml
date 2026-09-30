@@ -1,5 +1,5 @@
 name: hangout
-description: "Decisionly - Gamified Social Decision Making App"
+description: "Hangout: swipe with your crew, one place wins."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,12 +9,20 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  google_fonts: ^6.2.1
+  google_fonts: ^8.1.0
   confetti: ^0.8.0
-  shimmer: ^3.0.0
-  smooth_page_indicator: ^1.2.0+3
-  flutter_staggered_animations: ^1.1.1
   cupertino_icons: ^1.0.8
+  supabase_flutter: ^2.8.4
+  firebase_core: ^3.13.0
+  firebase_messaging: ^15.2.5
+  google_sign_in: ^6.2.2
+  url_launcher: ^6.3.1
+  http: ^1.2.2
+  google_maps_flutter: ^2.9.0
+  geolocator: ^13.0.2
+  flutter_localizations:
+    sdk: flutter
+  intl: any
 
 dev_dependencies:
   flutter_test:
@@ -23,3 +31,12 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Strings live in lib/l10n/*.arb; `flutter gen-l10n` (or any build) turns
+  # them into AppLocalizations.
+  generate: true
+
+  # Brand faces, bundled so google_fonts never fetches at runtime
+  # (no fallback-font flash on first launch, works offline). OFL licences
+  # sit beside them and are registered in main.dart.
+  assets:
+    - assets/google_fonts/

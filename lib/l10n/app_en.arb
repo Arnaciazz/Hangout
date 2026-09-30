@@ -1,0 +1,860 @@
+{
+  "@@locale": "en",
+  "appName": "Hangout",
+  "actionCancel": "Cancel",
+  "actionClose": "Close",
+  "actionDelete": "Delete",
+  "actionMore": "More",
+  "actionSave": "Save",
+  "actionShare": "Share",
+  "actionTryAgain": "Try again",
+  "actionUndo": "Undo",
+  "badgeHost": "Host",
+  "badgeOwner": "Owner",
+  "badgeYou": "You",
+  "nameYou": "{name} (you)",
+  "@nameYou": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "countOf": "{done} of {total}",
+  "@countOf": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "errorGeneric": "That didn’t work. Check your connection and try again.",
+  "errorCheckConnection": "Check your connection and try again.",
+  "linkOpenFailed": "Couldn’t open that link.",
+  "dateToday": "Today",
+  "dateYesterday": "Yesterday",
+  "dateFormatShort": "d MMM",
+  "dateFormatLong": "d MMM y",
+  "swipeYes": "I’m in",
+  "swipeNo": "Nope",
+  "swipePass": "Pass",
+  "swipeDetails": "Details",
+  "swipeCrewAllDone": "Everyone’s voted",
+  "swipeCrewProgress": "{done} of {total} friends done",
+  "@swipeCrewProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "swipeNothingTitle": "Nothing to swipe on",
+  "swipeNothingBody": "No places came back for this search. Try a wider radius or fewer filters.",
+  "swipeSaveFailedTitle": "Some swipes didn’t save",
+  "placeOpenNow": "Open now",
+  "placeClosed": "Closed",
+  "placeBookDineout": "Find a table on Dineout",
+  "placeDirections": "Directions",
+  "placeGetDirections": "Get directions",
+  "placeEazyDiner": "EazyDiner",
+  "placeWebsite": "Website",
+  "placeGoogleMaps": "Maps",
+  "placeOpenInMaps": "Open in Maps",
+  "placeCall": "Call",
+  "placeReviewsTitle": "What people say",
+  "placeShareMessage": "How about {name}? {link}",
+  "@placeShareMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "resultsDecidedTitle": "It’s decided",
+  "resultsNoWinnerTitle": "No clear winner",
+  "resultsCrewPicked": "{crew} picked a place.",
+  "@resultsCrewPicked": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      }
+    }
+  },
+  "resultsNoYes": "Nobody said yes to anything this round.",
+  "resultsVotes": "{yes} of {total} said yes",
+  "@resultsVotes": {
+    "placeholders": {
+      "yes": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "resultsNoVotes": "No votes recorded",
+  "resultsRunnersUp": "Runners-up",
+  "resultsHowItWent": "How it went",
+  "resultsVoteShort": "{yes} yes · {no} no",
+  "@resultsVoteShort": {
+    "placeholders": {
+      "yes": {
+        "type": "int"
+      },
+      "no": {
+        "type": "int"
+      }
+    }
+  },
+  "resultsStartAgain": "Start another round",
+  "resultsLoadFailed": "Couldn’t load the results.",
+  "resultsShareMessage": "It’s decided: {name}. {link}",
+  "@resultsShareMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "soloPicksTitle": "Your picks",
+  "soloNothingTitle": "Nothing grabbed you",
+  "soloLikedCount": "You liked {liked} of {total}.",
+  "@soloLikedCount": {
+    "placeholders": {
+      "liked": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "soloNothingBody": "{total, plural, =1{You passed on the only place.} other{You passed on all {total}.}} Try another area, or loosen the filters.",
+  "@soloNothingBody": {
+    "placeholders": {
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "soloPassedTitle": "You passed on",
+  "soloSwipeAgain": "Swipe somewhere else",
+  "billTileTitle": "Split the bill",
+  "billTileEmpty": "Paid for everyone? Friends pay you back by UPI.",
+  "billTileTitleWithTotal": "Bill · {amount}",
+  "@billTileTitleWithTotal": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billTileYouOwe": "You owe {name} {amount}",
+  "@billTileYouOwe": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billTileSettled": "Everyone’s settled up",
+  "billTileProgress": "{name} paid · {paid} of {total} settled",
+  "@billTileProgress": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "paid": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "billTitle": "Split the bill",
+  "billNewIntro": "Add what you paid and who came. Everyone sees their share and can pay you by UPI in one tap.",
+  "billTotalLabel": "Total bill",
+  "billTotalHint": "2,400",
+  "billTotalError": "Enter the total, like 2400 or 2400.50.",
+  "billUpiLabel": "Your UPI ID",
+  "billUpiHint": "yourname@okicici",
+  "billUpiHelper": "Friends pay you here. It’s saved to your profile for next time.",
+  "billUpiError": "That doesn’t look like a UPI ID. It’s usually name@bank, like asha@okicici.",
+  "billWhoCameTitle": "Who came?",
+  "billYouPaid": "You paid",
+  "billEachAmount": "{count, plural, =1{{amount} for 1 person} other{{amount} each for {count} people}}",
+  "@billEachAmount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billEachUneven": "{high} or {low} each for {count} people",
+  "@billEachUneven": {
+    "placeholders": {
+      "high": {
+        "type": "String"
+      },
+      "low": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "billCreateButton": "Split {amount}",
+  "@billCreateButton": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billCreateButtonEmpty": "Split the bill",
+  "billAlreadyExists": "Someone already added the bill for this hangout.",
+  "billNotAllowed": "Only the person who paid can change this bill.",
+  "billNotRevealed": "The bill opens once the winner is revealed.",
+  "billEditMustAddUp": "The amounts have to add up to the total.",
+  "billPaidBy": "Paid by {name}",
+  "@billPaidBy": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "billPaidByYou": "You paid",
+  "billAt": "at {place}",
+  "@billAt": {
+    "placeholders": {
+      "place": {
+        "type": "String"
+      }
+    }
+  },
+  "billSettledProgress": "{paid} of {total} settled",
+  "@billSettledProgress": {
+    "placeholders": {
+      "paid": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "billYouOwe": "You owe {name} {amount}",
+  "@billYouOwe": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billPayTo": "To {upi}",
+  "@billPayTo": {
+    "placeholders": {
+      "upi": {
+        "type": "String"
+      }
+    }
+  },
+  "billPayWithUpi": "Pay {amount} with UPI",
+  "@billPayWithUpi": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billIvePaid": "I’ve paid",
+  "billUpiNote": "Hangout bill",
+  "billUpiNoteAt": "Hangout · {place}",
+  "@billUpiNoteAt": {
+    "placeholders": {
+      "place": {
+        "type": "String"
+      }
+    }
+  },
+  "billNoUpiApp": "No UPI app opened. Pay {upi} from any UPI app, then tap “I’ve paid”.",
+  "@billNoUpiApp": {
+    "placeholders": {
+      "upi": {
+        "type": "String"
+      }
+    }
+  },
+  "billAfterPayHint": "Paid? Tap “I’ve paid” so {name} knows.",
+  "@billAfterPayHint": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "billYoureSettled": "You’re settled up",
+  "billCollectAt": "Friends pay you at {upi}",
+  "@billCollectAt": {
+    "placeholders": {
+      "upi": {
+        "type": "String"
+      }
+    }
+  },
+  "billAllSettled": "Everyone’s paid you back",
+  "billWaitingOn": "{count, plural, =1{Waiting on 1 person} other{Waiting on {count} people}}",
+  "@billWaitingOn": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "billRemind": "Remind on WhatsApp",
+  "billRemindMessage": "Settling up for our hangout: your share is in Hangout. Pay me on UPI at {upi}.",
+  "@billRemindMessage": {
+    "placeholders": {
+      "upi": {
+        "type": "String"
+      }
+    }
+  },
+  "billRemindMessageAt": "Settling up for {place}: your share is in Hangout. Pay me on UPI at {upi}.",
+  "@billRemindMessageAt": {
+    "placeholders": {
+      "place": {
+        "type": "String"
+      },
+      "upi": {
+        "type": "String"
+      }
+    }
+  },
+  "billSharesTitle": "Everyone’s share",
+  "billStatusPaid": "Paid",
+  "billStatusOwes": "Hasn’t paid yet",
+  "billStatusPayer": "Paid the bill",
+  "billChangeAmounts": "Change amounts",
+  "billDelete": "Delete bill",
+  "billDeleteTitle": "Delete this bill?",
+  "billDeleteBody": "Everyone’s shares and paid marks go with it.",
+  "billMarkPaid": "Mark as paid",
+  "billMarkUnpaid": "Mark as not paid",
+  "billEditTitle": "Change amounts",
+  "billEditTotal": "Total {amount}",
+  "@billEditTotal": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billEditLeft": "{amount} left to assign",
+  "@billEditLeft": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billEditOver": "{amount} over the total",
+  "@billEditOver": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "billEditAddsUp": "Adds up to the total",
+  "billEditEvenly": "Split evenly",
+  "billEditAmountError": "Use numbers only, like 450 or 450.50.",
+  "billLoadFailed": "Couldn’t load the bill.",
+  "revealAllDoneTitle": "Everyone’s voted",
+  "revealWaitingTitle": "Waiting on the crew",
+  "revealHostReady": "Reveal the winner when you’re ready.",
+  "revealHostEarly": "You can reveal now, or wait for everyone to finish.",
+  "revealGuestBody": "{host} reveals the winner. You’ll see it here the moment they do.",
+  "@revealGuestBody": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "revealTheHost": "The host",
+  "revealProgress": "{done} of {total} done",
+  "@revealProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "revealMemberDone": "Done",
+  "revealMemberSwiping": "Still swiping",
+  "revealButton": "Reveal the winner",
+  "revealEarlyTitle": "Reveal now?",
+  "revealEarlyBody": "{count, plural, =1{1 person hasn’t finished. Their votes so far will count.} other{{count} people haven’t finished. Their votes so far will count.}}",
+  "@revealEarlyBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "revealEarlyWait": "Wait",
+  "revealEarlyConfirm": "Reveal",
+  "revealFailed": "Couldn’t reveal the winner. Check your connection and try again.",
+  "lobbyEveryoneIn": "Everyone’s in",
+  "lobbyDropPins": "Drop your pins",
+  "lobbySubtitleFood": "{crew} · somewhere to eat",
+  "@lobbySubtitleFood": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      }
+    }
+  },
+  "lobbySubtitlePlaces": "{crew} · somewhere to go",
+  "@lobbySubtitlePlaces": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      }
+    }
+  },
+  "lobbyMidpoint": "We search around the middle of everyone’s pins, so nobody has to cross town.",
+  "lobbyMyPin": "My pin",
+  "lobbyPinFailed": "Couldn’t save that pin.",
+  "lobbyPinDropped": "Pin dropped",
+  "lobbyNoPinYet": "Hasn’t dropped a pin yet",
+  "lobbyMovePin": "Move my pin",
+  "lobbyDropPin": "Drop my pin",
+  "lobbyFindingPlaces": "Finding places…",
+  "lobbyStartSwiping": "Start swiping",
+  "lobbyStartWithPins": "{count, plural, =1{Start with 1 pin} other{Start with {count} pins}}",
+  "@lobbyStartWithPins": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "lobbyStartEarlyTitle": "Start without everyone?",
+  "lobbyStartEarlyBody": "{count, plural, =1{1 person hasn’t dropped a pin. We’ll search around the pins that are in, and they can still swipe.} other{{count} people haven’t dropped a pin. We’ll search around the pins that are in, and they can still swipe.}}",
+  "@lobbyStartEarlyBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "lobbyStartEarlyWait": "Wait",
+  "lobbyStartEarlyConfirm": "Start",
+  "lobbyWaitingForHost": "Waiting for the host to start",
+  "lobbyWaitingOn": "{count, plural, =1{Waiting on 1 more} other{Waiting on {count} more}}",
+  "@lobbyWaitingOn": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "lobbyNothingFoodNearby": "No restaurants near the crew’s pins. Try a wider radius.",
+  "lobbyNothingNearby": "No places near the crew’s pins. Try a wider radius.",
+  "crewSessionLoadFailed": "Couldn’t load that session.",
+  "crewCodeRefreshFailed": "Couldn’t get a new code.",
+  "crewCodeCopied": "Code copied",
+  "crewInviteMessage": "Join my Hangout crew *{crew}*\n\nInvite code: *{code}*\n\nGet Hangout and punch in the code.",
+  "@crewInviteMessage": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      },
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "crewInviteCopied": "Invite copied. Paste it anywhere.",
+  "crewDeleteTitle": "Delete this crew?",
+  "crewLeaveTitle": "Leave this crew?",
+  "crewDeleteBody": "This removes “{crew}” for everyone.",
+  "@crewDeleteBody": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      }
+    }
+  },
+  "crewLeaveBody": "You’ll drop out of “{crew}”.",
+  "@crewLeaveBody": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      }
+    }
+  },
+  "crewLeave": "Leave",
+  "crewDeleteMenu": "Delete crew",
+  "crewLeaveMenu": "Leave crew",
+  "crewMetaFood": "{count, plural, =1{Food · 1 person} other{Food · {count} people}}",
+  "@crewMetaFood": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "crewMetaPlaces": "{count, plural, =1{Places · 1 person} other{Places · {count} people}}",
+  "@crewMetaPlaces": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "crewInviteTitle": "Invite",
+  "crewMembersTitle": "The crew",
+  "crewPastTitle": "Past hangouts",
+  "crewFindFood": "Find somewhere to eat",
+  "crewFindPlace": "Find somewhere to go",
+  "crewSessionSetup": "Waiting for everyone to drop a pin",
+  "crewSessionOpen": "Open",
+  "crewSessionSwiping": "Swiping has started",
+  "crewSessionSwipe": "Swipe",
+  "crewPickingFood": "Picking somewhere to eat",
+  "crewPickingPlace": "Picking somewhere to go",
+  "crewInviteCodeSemantics": "Invite code {code}",
+  "@crewInviteCodeSemantics": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "crewInviteHint": "Friends join with this code",
+  "crewCopyCode": "Copy code",
+  "crewShareInvite": "Share invite",
+  "crewNewCode": "Get a new code",
+  "crewNewCodeLoading": "Getting a new code…",
+  "memoriesTitle": "Memories",
+  "memoriesSubtitleEmpty": "Where your crews ended up",
+  "memoriesCount": "{count, plural, =1{1 hangout so far} other{{count} hangouts so far}}",
+  "@memoriesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "memoriesEarlier": "Earlier",
+  "memoriesEmptyTitle": "Nothing here yet",
+  "memoriesEmptyBody": "When a crew lands on a winner, it’s saved here: where you went, who came, and how close the vote was.",
+  "memoriesLoading": "Loading memories",
+  "memoriesLoadFailed": "Couldn’t load your hangouts.",
+  "memoryNoWinner": "No winner",
+  "memoryNoWinnerLong": "No winner this time",
+  "memoryOpenFailed": "Couldn’t open that hangout.",
+  "memoryRemoved": "Removed from your memories",
+  "memoryJustYou": "Just you",
+  "memoryMeta": "{who} · {date}",
+  "@memoryMeta": {
+    "placeholders": {
+      "who": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "memoryDidntGo": "Didn’t go",
+  "memoryNobodyYes": "Nobody said yes to anything",
+  "memoryVotesShort": "{yes}/{total}",
+  "@memoryVotesShort": {
+    "placeholders": {
+      "yes": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "profileTitle": "You",
+  "profileHangouts": "Hangouts",
+  "profileCrews": "Crews",
+  "profileEdit": "Edit name and avatar",
+  "profileUpiAdd": "Add your UPI ID",
+  "profileUpiHint": "Where friends pay you back",
+  "profileUpiSheetBody": "When you pay for the crew, friends pay you back here.",
+  "profileLicences": "Open-source licences",
+  "profileLogOut": "Log out",
+  "setupAlreadyDecidingTitle": "Already deciding",
+  "setupAlreadyDecidingBody": "{crew} has a hangout going. Join that one instead of starting another.",
+  "@setupAlreadyDecidingBody": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      }
+    }
+  },
+  "setupAlreadyDecidingOpen": "Open it",
+  "setupNeedPlace": "Drop a pin, or type an area name.",
+  "setupNothingFood": "Nothing open around there. Try a wider radius?",
+  "setupNothingPlaces": "Nothing around there. Try a wider radius?",
+  "setupAreaNotFound": "We couldn’t find that area. Try adding the city.",
+  "setupJustMe": "Just me",
+  "setupGroupTitleFood": "Find food together",
+  "setupGroupTitlePlaces": "Find a spot together",
+  "setupHowItGoes": "Here’s how it goes.",
+  "setupStepPins": "Everyone drops a pin in the lobby",
+  "setupStepSwipe": "{count, plural, =1{You swipe the places} =2{Both of you swipe the same places} other{All {count} of you swipe the same places}}",
+  "@setupStepSwipe": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setupStepReveal": "You reveal the winner when the crew’s done",
+  "setupOpenLobby": "Open the lobby",
+  "setupSoloTitleFood": "Where are you eating?",
+  "setupSoloTitlePlaces": "Where are you headed?",
+  "setupPinDropped": "Pin dropped",
+  "setupPickOnMap": "Pick on the map",
+  "setupPickOnMapHint": "Open the map and drop a pin",
+  "setupOrTypeArea": "or type an area",
+  "setupAreaHintFood": "Banjara Hills, Hyderabad",
+  "setupAreaHintPlaces": "Charminar, Hyderabad",
+  "setupFindFood": "Find places to eat",
+  "setupFindPlaces": "Find places to go",
+  "navHome": "Home",
+  "navCrews": "Crews",
+  "navMemories": "Memories",
+  "navYou": "You",
+  "navStartHangout": "Start a hangout",
+  "startSheetTitle": "What are we deciding?",
+  "startSheetFood": "Somewhere to eat",
+  "startSheetFoodHint": "Restaurants, cafés, bars",
+  "startSheetPlaces": "Somewhere to go",
+  "startSheetPlacesHint": "Parks, museums, days out",
+  "homeProfile": "Your profile",
+  "homeGreetingDay": "Where to today?",
+  "homeGreetingNight": "Where to tonight?",
+  "homeEat": "Eat",
+  "homeExplore": "Explore",
+  "homeLastTime": "Last time",
+  "homeAllMemories": "All memories",
+  "homeOpenFailed": "Couldn’t open that hangout. Try again.",
+  "homeSwipingFood": "Swiping for somewhere to eat",
+  "homeSwipingPlaces": "Swiping for somewhere to go",
+  "homePinsFood": "Dropping pins for somewhere to eat",
+  "homePinsPlaces": "Dropping pins for somewhere to go",
+  "crewsTitle": "Crews",
+  "crewsSubtitle": "The people you decide with.",
+  "crewsJoin": "Join",
+  "crewsNew": "New",
+  "crewsLoading": "Loading your crews",
+  "crewsEmptyTitle": "No crews yet",
+  "crewsEmptyBody": "A crew is the group you decide with. Start one and share the code, or join a friend’s.",
+  "crewsStart": "Start a crew",
+  "crewsJoinWithCode": "Join with a code",
+  "crewsLoadFailed": "Couldn’t load your crews",
+  "crewsRetry": "Retry",
+  "joinTitle": "Join a crew",
+  "joinSubtitle": "Enter the 6-character code your friend shared.",
+  "joinButton": "Join crew",
+  "joinNotFound": "That code didn’t match a crew. Check it and try again.",
+  "joinFull": "“{crew}” is full. Crews top out at 10 people.",
+  "@joinFull": {
+    "placeholders": {
+      "crew": {
+        "type": "String"
+      }
+    }
+  },
+  "modeTitleFood": "Where to eat",
+  "modeTitlePlaces": "Where to go",
+  "modeSubtitle": "Pick who’s deciding.",
+  "modeWithCrew": "With a crew",
+  "modeStart": "Start",
+  "modeOnYourOwn": "On your own",
+  "modeJustMeHint": "Swipe solo and decide fast",
+  "modeNoCrewsFood": "No food crews yet",
+  "modeNoCrewsPlaces": "No explore crews yet",
+  "modeNoCrewsBody": "Start one, share the code, and everyone swipes on the same places.",
+  "memberCount": "{count, plural, =1{1 person} other{{count} people}}",
+  "@memberCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "createTitle": "New crew",
+  "createSubtitle": "The people you decide with. You’ll get a code to share.",
+  "createDecideLabel": "What will you decide?",
+  "createModeFood": "Food",
+  "createModePlaces": "Places",
+  "createNameLabel": "Crew name",
+  "createNameHintFood": "Friday dinner lot",
+  "createNameHintPlaces": "Weekend wanderers",
+  "createNameEmpty": "Give the crew a name",
+  "createNameShort": "A bit longer than that",
+  "createButton": "Create crew",
+  "loginHeadline": "We should hang out sometime.",
+  "loginBody": "Swipe on places with your crew. Everyone votes, one spot wins.",
+  "loginGoogle": "Continue with Google",
+  "loginOrPhone": "or use your phone",
+  "loginPhoneHint": "Mobile number",
+  "loginPhoneEmpty": "Enter your mobile number",
+  "loginPhoneInvalid": "That’s not a 10-digit number",
+  "loginSendCode": "Send code",
+  "loginGoogleFailed": "Google sign-in didn’t work. Try again?",
+  "loginSendFailed": "We couldn’t send that code. Check the number and try again.",
+  "loginLegal": "By continuing you agree to the {terms} and {privacy}.",
+  "@loginLegal": {
+    "placeholders": {
+      "terms": {
+        "type": "String"
+      },
+      "privacy": {
+        "type": "String"
+      }
+    }
+  },
+  "loginTerms": "Terms of Service",
+  "loginPrivacy": "Privacy Policy",
+  "otpTitle": "Enter the code",
+  "otpSentTo": "We texted a 6-digit code to {phone}",
+  "@otpSentTo": {
+    "placeholders": {
+      "phone": {
+        "type": "String"
+      }
+    }
+  },
+  "otpVerify": "Verify & continue",
+  "otpWrong": "That code didn’t match. Try again.",
+  "otpResendFailed": "We couldn’t resend that code.",
+  "otpResent": "Code sent again",
+  "otpDidntGetIt": "Didn’t get it?",
+  "otpResend": "Send it again",
+  "otpResendIn": "Resend in {seconds}s",
+  "@otpResendIn": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "otpDigit": "Digit {position} of 6",
+  "@otpDigit": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "avatarNeedNickname": "Pick a nickname first",
+  "avatarSaveFailed": "Couldn’t save that. Check your connection and try again.",
+  "avatarEditTitle": "Edit profile",
+  "avatarTitle": "Make it yours",
+  "avatarBody": "This is how your crews will see you. You can change it later.",
+  "avatarNicknameLabel": "Nickname",
+  "avatarNicknameHelper": "Shuffle for a new one, or type your own.",
+  "avatarNewNickname": "New nickname",
+  "avatarLetsGo": "Let’s go",
+  "avatarPick": "Avatar {name}",
+  "@avatarPick": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pickerSearchHere": "Search here",
+  "pickerTapMap": "Tap the map to drop a pin",
+  "pickerMyLocation": "Use my location",
+  "pickerConfirm": "Search around here",
+  "pickerLocationOff": "Turn on location to use where you are.",
+  "pickerLocationDenied": "Location permission is off. You can still tap the map.",
+  "filtersTitle": "Narrow it down",
+  "filtersBody": "Everything here is optional.",
+  "filtersCraving": "Craving",
+  "filtersCategories": "Categories",
+  "filtersPickFew": "Pick a few, or leave it open.",
+  "filtersBudget": "Budget",
+  "filtersBudgetHint": "Skip anything pricier.",
+  "filtersAny": "Any",
+  "filtersOpenNow": "Open now",
+  "filtersOpenNowHint": "Only somewhere you can walk into.",
+  "filtersOpenNowSwitch": "Only places open now",
+  "filtersHowFar": "How far",
+  "filtersHowFarHint": "{km} km from your spot.",
+  "@filtersHowFarHint": {
+    "placeholders": {
+      "km": {
+        "type": "int"
+      }
+    }
+  },
+  "filtersKm": "{km} km",
+  "@filtersKm": {
+    "placeholders": {
+      "km": {
+        "type": "int"
+      }
+    }
+  },
+  "catPizza": "Pizza",
+  "catBurgers": "Burgers",
+  "catSushi": "Sushi",
+  "catNoodles": "Noodles",
+  "catBiryani": "Biryani",
+  "catArabian": "Arabian",
+  "catCafe": "Cafe",
+  "catBrewery": "Brewery",
+  "catNorthIndian": "North Indian",
+  "catSouthIndian": "South Indian",
+  "catBreakfast": "Breakfast",
+  "catDesserts": "Desserts",
+  "catMuseums": "Museums",
+  "catParks": "Parks",
+  "catAmusement": "Amusement",
+  "catGalleries": "Art galleries",
+  "catHistoric": "Historic sites",
+  "catShopping": "Shopping",
+  "catEntertainment": "Entertainment",
+  "notifyOpen": "Open"
+}

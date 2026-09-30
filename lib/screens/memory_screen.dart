@@ -1,245 +1,493 @@
 import 'package:flutter/material.dart';
 
-class MemoryScreen extends StatelessWidget {
-  const MemoryScreen({super.key});
+import '../l10n/l10n.dart';
+import '../models/group.dart';
+import '../services/group_service.dart';
+import '../services/history_service.dart';
+import '../services/session_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
+import '../theme/app_tokens.dart';
+import '../utils/dates.dart';
+import '../widgets/hangout_button.dart';
+import '../widgets/hangout_card.dart';
+import '../widgets/hangout_chips.dart';
+import '../widgets/hangout_list.dart';
+import '../widgets/hangout_motion.dart';
+import 'results_screen.dart';
+
+/// Every hangout that landed on a winner, newest first.
+class MemoryScreen extends StatefulWidget {
+  /// Bumped by the shell when this tab is re-entered, so a hangout that just
+  /// finished shows up.
+  final int refreshToken;
+
+  const MemoryScreen({super.key, this.refreshToken = 0});
+
+  @override
+  State<MemoryScreen> createState() => _MemoryScreenState();
+}
+
+class _MemoryScreenState extends State<MemoryScreen> {
+  final _history = HistoryService();
+  late Future<List<HangoutMemory>> _future = _history.fetchMemories();
+
+  /// Marked "Didn't go" this visit; hidden straight away, before the server
+  /// confirms, and shown again on Undo.
+  final _hidden = <String>{};
+
+  @override
+  void didUpdateWidget(covariant MemoryScreen old) {
+    super.didUpdateWidget(old);
+    if (old.refreshToken != widget.refreshToken) _reload();
+  }
+
+  Future<void> _reload() async {
+    final next = _history.fetchMemories();
+    setState(() => _future = next);
+    await next.catchError((_) => <HangoutMemory>[]);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFCF9F8),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            backgroundColor: const Color(0xFFFCF9F8).withOpacity(0.8),
-            surfaceTintColor: Colors.transparent,
-            pinned: true,
-            title: const Text('Memory Lane', style: TextStyle(color: Color(0xFF1C1B1B), fontSize: 24, fontWeight: FontWeight.w800, fontFamily: 'Plus Jakarta Sans')),
-            centerTitle: false,
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              child: const Text('A visual receipt of good times.', style: TextStyle(color: Color(0xFF3F4A36), fontSize: 16)),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                _buildTimelineNode(
-                  context,
-                  date: 'Oct 12 • Shinjuku',
-                  title: 'Omakase Nights',
-                  imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBTiypGRdCBGaBT7VQdiO_FQyTPPSkv51tdfjDOFQuSq4p1ypDC4HdOYylTfL4a415ukSneRNyNMwN7PDYcCVbqrXQTSPbPnBdaxfOUoTTf3FUF35br1r1EQFFWj9mrSXJJafeq8XaxZWyD5vwILCMMTnqQb0690kcOjNgI_kSNcFHkj4Isa3B8V6Y8YjfroeTUSZk63WqFlIJcPvHiXKu-rdD9urbW-3y4q1vHysM8yrYxaX1pEQwPtEvEPMTD41S8czxBBNAufzU',
-                  isFirst: true,
-                  isLast: false,
-                  detailsWidget: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: _bentoBox('Total Bill', '\$245.50', valueColor: const Color(0xFF1C1B1B))),
-                          const SizedBox(width: 8),
-                          Expanded(child: _bentoBox('Your Share', '\$122.75', valueColor: const Color(0xFF2B6C00))),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(color: const Color(0xFFFD5835), borderRadius: BorderRadius.circular(16)),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
-                                Text('TOP VOTED DISH', style: TextStyle(color: Color(0xCC570C00), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-                                SizedBox(height: 4),
-                                Text('Otoro Nigiri', style: TextStyle(color: Color(0xFF570C00), fontSize: 16, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            Container(
-                              width: 40, height: 40,
-                              decoration: const BoxDecoration(color: Color(0x1A570C00), shape: BoxShape.circle),
-                              child: const Icon(Icons.restaurant, color: Color(0xFF570C00), size: 20),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _buildTimelineNode(
-                  context,
-                  date: 'Oct 10 • Roppongi',
-                  title: 'Neon Sips',
-                  imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBt2-zMQk7KUNVaTFM6uvW4ko1waRuoC4ddAF2k0fPj7FUBfv5RUf4Zxah9FVN17CrwMF6Y_l4ZazPekjOdwM7pdobfmg9W_A4SrOoCPDLVUuEXHAZWZuhR4Pon5LGd44jILpO9fi-eWsBZqGikBOYFbHuMT3YPTK-6-FTthFy6NoKCPJ5Yh1J20Aq0EppuWY7WQ56WLV26jxO5F1CCZ1nVkEf6UYGDMW6-uWv7GPXc2hqNyisfM-maDx-cFMH69txnteoygpW_CRo',
-                  isFirst: false,
-                  isLast: false,
-                  detailsWidget: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(color: const Color(0xFF58CC02), borderRadius: BorderRadius.circular(16)),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
-                                Text('YOUR SHARE PAID', style: TextStyle(color: Color(0xCC1E5000), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-                                SizedBox(height: 4),
-                                Text('\$48.00', style: TextStyle(color: Color(0xFF1E5000), fontSize: 22, fontWeight: FontWeight.w700)),
-                              ],
-                            ),
-                            const Icon(Icons.check_circle, color: Color(0xFF1E5000), size: 32),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(child: _bentoBox('Group Total', '\$144.00', valueColor: const Color(0xFF1C1B1B), isSmall: true)),
-                          const SizedBox(width: 8),
-                          Expanded(child: _bentoBox('Favorite Drink', 'Yuzu Spritz', valueColor: const Color(0xFF1C1B1B), isSmall: true)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                _buildTimelineNode(
-                  context,
-                  date: 'Oct 09 • Shibuya',
-                  title: 'Morning Brew',
-                  imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDwvIozD73T7VawzMDBhq0GlSkJTmK3De9KjafnN1H2CahfqVWcTISMeTlEFsi_c_krrIWVVH3EEgdN6Qemml8jYu2lY0sAVh7rpcfbGSfDy7MxcjwAVpdE-GY0gz1WCqMv8u3WhjYs4_h-rzY4K_Uoa8vQw0QOwS6duMQeqVP8uA9_zgor_j-AZDknkw_xYqlshG1_8VmAvdYMqVPON_JHt3aIwjGaBMFuV7qDu3QRCydQUnKG9kSAlZaiZDHByGNy9MX8ilVnmEg',
-                  isFirst: false,
-                  isLast: true,
-                  aspectRatio: 16 / 9,
-                  detailsWidget: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: const Color(0xFFF6F3F2), borderRadius: BorderRadius.circular(16)),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text('Covered by Alex', style: TextStyle(color: Color(0xFF1C1B1B), fontSize: 16)),
-                        Text('SETTLED', style: TextStyle(color: Color(0xFF2B6C00), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-                      ],
-                    ),
-                  ),
-                ),
-              ]),
-            ),
-          ),
-        ],
+      backgroundColor: Colors.transparent,
+      body: FutureBuilder<List<HangoutMemory>>(
+        future: _future,
+        builder: (context, snap) {
+          final Widget body;
+          if (snap.hasError) {
+            body = _ErrorState(onRetry: _reload);
+          } else if (!snap.hasData) {
+            body = const _LoadingState();
+          } else {
+            body = MemoriesView(
+              memories: [
+                for (final m in snap.data!)
+                  if (!_hidden.contains(m.sessionId)) m,
+              ],
+              onOpen: _open,
+              onDidntGo: _didntGo,
+            );
+          }
+          return RefreshIndicator(onRefresh: _reload, child: body);
+        },
       ),
     );
   }
 
-  Widget _buildTimelineNode(
-    BuildContext context, {
-    required String date,
-    required String title,
-    required String imageUrl,
-    required Widget detailsWidget,
-    required bool isFirst,
-    required bool isLast,
-    double aspectRatio = 4 / 5,
-  }) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Timeline Line & Dot
-          SizedBox(
-            width: 32,
-            child: Stack(
-              alignment: Alignment.topCenter,
+  /// The hangout's full results: winner, runners-up, and the bill.
+  Future<void> _open(HangoutMemory m) async {
+    Group? group;
+    if (m.groupId != null) {
+      try {
+        group = await GroupService().getGroupDetails(m.groupId!);
+      } catch (_) {}
+      if (!mounted) return;
+      if (group == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.memoryOpenFailed)),
+        );
+        return;
+      }
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ResultsScreen(
+        session: SessionModel(
+          id: m.sessionId,
+          groupId: m.groupId,
+          userId: '',
+          mode: m.mode,
+          type: group == null ? 'solo' : 'group',
+          status: 'revealed',
+        ),
+        group: group,
+      ),
+    ));
+  }
+
+  /// "Didn't go": off this person's memories (and counts), with Undo.
+  Future<void> _didntGo(HangoutMemory m) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _hidden.add(m.sessionId));
+    try {
+      await _history.dismiss(m.sessionId);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _hidden.remove(m.sessionId));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.errorGeneric)));
+      return;
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(l10n.memoryRemoved),
+        action: SnackBarAction(
+          label: l10n.actionUndo,
+          onPressed: () async {
+            try {
+              await _history.undoDismiss(m.sessionId);
+            } catch (_) {
+              return;
+            }
+            if (mounted) setState(() => _hidden.remove(m.sessionId));
+          },
+        ),
+      ));
+  }
+}
+
+/// Pure presentation of the memories list — no data loading, so it can be
+/// rendered in tests with fixtures.
+class MemoriesView extends StatelessWidget {
+  final List<HangoutMemory> memories;
+  final ValueChanged<HangoutMemory>? onOpen;
+  final ValueChanged<HangoutMemory>? onDidntGo;
+
+  const MemoriesView({
+    super.key,
+    required this.memories,
+    this.onOpen,
+    this.onDidntGo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final latest = memories.isEmpty ? null : memories.first;
+    final earlier = memories.length > 1 ? memories.sublist(1) : const <HangoutMemory>[];
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        MediaQuery.of(context).padding.top + AppSpacing.x5,
+        AppSpacing.gutter,
+        120,
+      ),
+      children: [
+        Text(l10n.memoriesTitle, style: AppTextStyles.h1),
+        const SizedBox(height: 2),
+        Text(
+          memories.isEmpty
+              ? l10n.memoriesSubtitleEmpty
+              : l10n.memoriesCount(memories.length),
+          style: AppTextStyles.small,
+        ),
+        const SizedBox(height: AppSpacing.x5),
+        if (latest == null)
+          const _EmptyState()
+        else ...[
+          _LatestCard(
+            memory: latest,
+            onTap: () => onOpen?.call(latest),
+            onDidntGo:
+                onDidntGo == null ? null : () => onDidntGo!.call(latest),
+          ),
+          if (earlier.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.x8),
+            SectionHeader(title: l10n.memoriesEarlier),
+            const SizedBox(height: AppSpacing.x2),
+            HangoutListGroup(
               children: [
-                if (!isLast)
-                  Positioned(
-                    top: 24, bottom: -40,
-                    child: Container(
-                      width: 2,
-                      decoration: const BoxDecoration(
-                        border: Border(left: BorderSide(color: Color(0x99BECBB1), width: 2, style: BorderStyle.solid)), // Use dashed using custom painter if needed, but solid is fine for simple impl
-                      ),
+                for (final m in earlier)
+                  HangoutListRow(
+                    leading: _Thumb(memory: m),
+                    title: m.winner?.name ?? l10n.memoryNoWinner,
+                    subtitle: meta(context, m),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _Votes(memory: m),
+                        if (onDidntGo != null)
+                          _MemoryMenu(onDidntGo: () => onDidntGo!.call(m)),
+                      ],
                     ),
+                    onTap: () => onOpen?.call(m),
                   ),
-                Positioned(
-                  top: 24,
-                  child: Container(
-                    width: 16, height: 16,
-                    decoration: BoxDecoration(
-                      color: isFirst ? const Color(0xFF2B6C00) : const Color(0xFFE5E2E1),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFFFCF9F8), width: 4),
-                    ),
-                  ),
-                ),
               ],
             ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  static String meta(BuildContext context, HangoutMemory m) =>
+      context.l10n.memoryMeta(
+        m.groupName ?? context.l10n.memoryJustYou,
+        friendlyDate(context.l10n, m.date),
+      );
+}
+
+/// The "Didn't go" option: hides a hangout from this person's memories only.
+class _MemoryMenu extends StatelessWidget {
+  final VoidCallback onDidntGo;
+  final bool onPhoto;
+
+  const _MemoryMenu({required this.onDidntGo, this.onPhoto = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return PopupMenuButton<String>(
+      tooltip: l10n.actionMore,
+      onSelected: (_) => onDidntGo(),
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'didnt-go',
+          child: Row(
+            children: [
+              const Icon(Icons.remove_circle_outline_rounded,
+                  size: 20, color: AppColors.textMuted),
+              const SizedBox(width: AppSpacing.x3),
+              Text(l10n.memoryDidntGo, style: AppTextStyles.body),
+            ],
           ),
-          const SizedBox(width: 16),
-          // Content
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 40),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AspectRatio(
-                    aspectRatio: aspectRatio,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        image: DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover),
-                      ),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(24),
-                          gradient: const LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [Colors.black87, Colors.black26, Colors.transparent],
-                            stops: [0.0, 0.4, 1.0],
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(date, style: const TextStyle(color: Color(0xFFE5E2E1), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-                            const SizedBox(height: 4),
-                            Text(title, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700, fontFamily: 'Plus Jakarta Sans')),
-                          ],
-                        ),
-                      ),
-                    ),
+        ),
+      ],
+      child: SizedBox(
+        width: 48,
+        height: 48,
+        child: Center(
+          child: onPhoto
+              ? Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceInverse.withValues(alpha: 0.45),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 12),
-                  detailsWidget,
+                  child: const Icon(Icons.more_vert_rounded,
+                      color: Colors.white, size: 20),
+                )
+              : const Icon(Icons.more_vert_rounded,
+                  color: AppColors.textMuted, size: 20),
+        ),
+      ),
+    );
+  }
+}
+
+class _LatestCard extends StatelessWidget {
+  final HangoutMemory memory;
+  final VoidCallback onTap;
+  final VoidCallback? onDidntGo;
+
+  const _LatestCard({
+    required this.memory,
+    required this.onTap,
+    this.onDidntGo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final place = memory.winner;
+
+    return Pressable(
+      onTap: onTap,
+      scale: 0.98,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadius.xlAll,
+          boxShadow: AppShadows.lg,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 10,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  HangoutPhoto(
+                    url: place?.mainPhotoUrl,
+                    fallbackIcon: memory.mode == 'hunger'
+                        ? Icons.restaurant_rounded
+                        : Icons.explore_rounded,
+                  ),
+                  if (place?.rating != null)
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: HangoutBadge.rating(place!.rating!),
+                    ),
+                  if (onDidntGo != null)
+                    Positioned(
+                      top: 2,
+                      right: 2,
+                      child: _MemoryMenu(onDidntGo: onDidntGo!, onPhoto: true),
+                    ),
                 ],
               ),
             ),
-          ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    place?.name ?? context.l10n.memoryNoWinnerLong,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.h3,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    MemoriesView.meta(context, memory),
+                    style: AppTextStyles.small,
+                  ),
+                  const SizedBox(height: 12),
+                  _Votes(memory: memory, long: true),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Thumb extends StatelessWidget {
+  final HangoutMemory memory;
+
+  const _Thumb({required this.memory});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: AppRadius.mdAll,
+      child: SizedBox(
+        width: 52,
+        height: 52,
+        child: HangoutPhoto(
+          url: memory.winner?.mainPhotoUrl,
+          fallbackIcon: memory.mode == 'hunger'
+              ? Icons.restaurant_rounded
+              : Icons.explore_rounded,
+        ),
+      ),
+    );
+  }
+}
+
+/// "4 of 5 said yes". The share of the crew that wanted the winner is the one
+/// number that says how the night went.
+class _Votes extends StatelessWidget {
+  final HangoutMemory memory;
+  final bool long;
+
+  const _Votes({required this.memory, this.long = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final total = memory.yesVotes + memory.noVotes;
+    if (memory.winner == null || total == 0) {
+      return Text(long ? l10n.memoryNobodyYes : '—',
+          style: AppTextStyles.caption);
+    }
+    final label = long
+        ? l10n.resultsVotes(memory.yesVotes, total)
+        : l10n.memoryVotesShort(memory.yesVotes, total);
+    return Text(
+      label,
+      style: AppTextStyles.captionStrong.copyWith(color: AppColors.avocado700),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.x5),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSunken,
+        borderRadius: AppRadius.lgAll,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(context.l10n.memoriesEmptyTitle, style: AppTextStyles.title),
+          const SizedBox(height: 4),
+          Text(context.l10n.memoriesEmptyBody, style: AppTextStyles.small),
         ],
       ),
     );
   }
+}
 
-  Widget _bentoBox(String title, String value, {required Color valueColor, bool isSmall = false}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFFF0EDEC), borderRadius: BorderRadius.circular(16)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(title.toUpperCase(), style: const TextStyle(color: Color(0xFF3F4A36), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-          const SizedBox(height: 4),
-          Text(value, style: TextStyle(color: valueColor, fontSize: isSmall ? 16 : 22, fontWeight: isSmall ? FontWeight.w500 : FontWeight.w700)),
-        ],
+class _LoadingState extends StatelessWidget {
+  const _LoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        MediaQuery.of(context).padding.top + AppSpacing.x5,
+        AppSpacing.gutter,
+        120,
       ),
+      children: [
+        Text(context.l10n.memoriesTitle, style: AppTextStyles.h1),
+        const SizedBox(height: AppSpacing.x5 + 22),
+        Semantics(
+          label: context.l10n.memoriesLoading,
+          child: Container(
+            height: 280,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceSunken,
+              borderRadius: AppRadius.xlAll,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _ErrorState({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        MediaQuery.of(context).padding.top + AppSpacing.x5,
+        AppSpacing.gutter,
+        120,
+      ),
+      children: [
+        Text(context.l10n.memoriesTitle, style: AppTextStyles.h1),
+        const SizedBox(height: AppSpacing.x5),
+        Text(context.l10n.memoriesLoadFailed, style: AppTextStyles.bodyStrong),
+        const SizedBox(height: 4),
+        Text(context.l10n.errorCheckConnection, style: AppTextStyles.small),
+        const SizedBox(height: AppSpacing.x3),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: HangoutButton(
+            label: context.l10n.actionTryAgain,
+            size: HangoutButtonSize.sm,
+            variant: HangoutButtonVariant.secondary,
+            onPressed: onRetry,
+          ),
+        ),
+      ],
     );
   }
 }

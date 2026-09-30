@@ -1,0 +1,7 @@
+tags:
+  # Visual previews. They write PNGs to test/preview/ for eyeballing the design
+  # and need --update-goldens, so they're skipped on a normal `flutter test`.
+  #
+  #   flutter test --tags preview --update-goldens test/golden_preview_test.dart
+  preview:
+    skip: "visual preview; run with --tags preview --update-goldens"

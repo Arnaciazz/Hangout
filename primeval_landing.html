@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Primeval | The Lost World</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Montserrat:wght@300;400;600&display=swap');
+
+        :root {
+            --bg-dark: #1A1C1A;
+            --bg-medium: #2D342D;
+            --text-light: #E8EDE8;
+            --accent: #A3B19B;
+            --glass-bg: rgba(26, 28, 26, 0.4);
+            --glass-border: rgba(163, 177, 155, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            overflow-x: hidden;
+        }
+
+        /* Background & Mist Effects */
+        .hero {
+            position: relative;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: url('https://images.unsplash.com/photo-1512411082572-c208945414dc?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80') center/cover no-repeat;
+        }
+
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(180deg, rgba(26, 28, 26, 0.8) 0%, rgba(45, 52, 45, 0.6) 50%, rgba(26, 28, 26, 0.95) 100%);
+            z-index: 1;
+        }
+
+        .mist {
+            position: absolute;
+            bottom: 0; left: 0; width: 100%; height: 60%;
+            background: url('https://raw.githubusercontent.com/danielstuart14/CSS_FOG_ANIMATION/master/fog1.png') repeat-x;
+            background-size: cover;
+            animation: mistMove 60s linear infinite;
+            opacity: 0.3;
+            z-index: 2;
+        }
+
+        @keyframes mistMove {
+            0% { background-position: 0 0; }
+            100% { background-position: -200vw 0; }
+        }
+
+        /* Easter Egg / Texture - Subtle Fossil Pattern */
+        .fossil-texture {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: radial-gradient(var(--glass-border) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.1;
+            z-index: 3;
+            /* Subtle skeletal/fossil path hinting could be added here via an SVG mask */
+        }
+
+        /* Navigation */
+        nav {
+            position: absolute;
+            top: 0; left: 0; width: 100%;
+            padding: 2rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .logo {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem;
+            letter-spacing: 4px;
+            color: var(--text-light);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        /* Minimalist Dino Iconography */
+        .dino-icon {
+            width: 24px;
+            height: 24px;
+            fill: var(--accent);
+            opacity: 0.8;
+            transition: all 0.3s ease;
+        }
+        
+        .logo:hover .dino-icon {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 3rem;
+        }
+
+        .nav-links a {
+            color: var(--text-light);
+            text-decoration: none;
+            font-size: 0.9rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            transition: color 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent);
+        }
+
+        /* Glassmorphism Content Box */
+        .content {
+            position: relative;
+            z-index: 10;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 4rem 5rem;
+            border-radius: 2px;
+            border: 1px solid var(--glass-border);
+            text-align: center;
+            max-width: 800px;
+            box-shadow: 0 25px 45px rgba(0,0,0,0.5);
+            transform: translateY(20px);
+            animation: fadeIn 1.5s ease-out forwards;
+            opacity: 0;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        h1 {
+            font-family: 'Cinzel', serif;
+            font-size: 4rem;
+            font-weight: 400;
+            margin-bottom: 1.5rem;
+            letter-spacing: 8px;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        p {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: var(--accent);
+            margin-bottom: 3rem;
+            font-weight: 300;
+            padding: 0 2rem;
+        }
+
+        .cta-btn {
+            display: inline-block;
+            padding: 1rem 3rem;
+            background: transparent;
+            color: var(--text-light);
+            text-decoration: none;
+            border: 1px solid var(--accent);
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.9rem;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: var(--accent);
+            transition: all 0.4s ease;
+            z-index: -1;
+        }
+
+        .cta-btn:hover::before {
+            left: 0;
+        }
+
+        .cta-btn:hover {
+            color: var(--bg-dark);
+            font-weight: 600;
+        }
+
+    </style>
+</head>
+<body>
+
+    <section class="hero">
+        <div class="overlay"></div>
+        <div class="mist"></div>
+        <div class="fossil-texture"></div>
+
+        <nav>
+            <a href="#" class="logo">
+                <!-- Minimalist claw/tooth iconography -->
+                <svg class="dino-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L9 10l-6 2 5 5-2 7 8-4.5L20 24l-2-7 5-5-6-2z"/>
+                </svg>
+                PRIMEVAL
+            </a>
+            <div class="nav-links">
+                <a href="#">Expeditions</a>
+                <a href="#">The Lineage</a>
+                <a href="#">Sanctuary</a>
+            </div>
+        </nav>
+
+        <div class="content">
+            <h1>The Lost World</h1>
+            <p>Step into an untouched era where majesty meets the wild. A curated experience blending raw, ancient power with unparalleled modern luxury.</p>
+            <a href="#" class="cta-btn">Begin Journey</a>
+        </div>
+    </section>
+
+</body>
+</html>
