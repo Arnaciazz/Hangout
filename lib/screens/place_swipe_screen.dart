@@ -2,19 +2,22 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../l10n/l10n.dart';
 import '../models/group.dart';
 import '../models/place.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
-import '../widgets/hangout_avatar.dart';
 import '../widgets/hangout_button.dart';
-import '../widgets/hangout_card.dart';
 import '../widgets/hangout_chips.dart';
 import '../widgets/hangout_list.dart';
+import 'place_detail_screen.dart';
+import 'results_screen.dart';
+import 'reveal_screen.dart';
+
+export 'results_screen.dart' show ResultsScreen;
 
 /// The swipe deck.
 ///
@@ -29,11 +32,16 @@ class PlaceSwipeScreen extends StatefulWidget {
   /// Injected in tests; created on first use otherwise.
   final SessionService? service;
 
+  /// Pick up after the places this person already swiped (reopening a
+  /// session). Off for a session that was just dealt.
+  final bool resume;
+
   const PlaceSwipeScreen({
     super.key,
     required this.session,
     this.group,
     this.service,
+    this.resume = false,
   });
 
   @override
@@ -47,10 +55,23 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
   int _currentIndex = 0;
   bool _swiping = false;
 
+  /// Resuming: waiting to learn which places were already swiped.
+  late bool _loadingSwipes = widget.resume;
+
+  /// Out of cards: saving the last swipes and working out where to go.
+  bool _finishing = false;
+  bool _saveFailed = false;
+
+  /// Swipes still being saved, and ones that gave up after retrying.
+  final List<Future<void>> _inFlight = [];
+  final Map<String, String> _unsaved = {};
+
   final Map<int, int> _photoIndex = {};
 
-  StreamSubscription<({int membersFinished, int totalMembers})>? _progressSub;
-  ({int membersFinished, int totalMembers})? _groupProgress;
+  StreamSubscription<CrewProgress>? _progressSub;
+  StreamSubscription<String>? _statusSub;
+  CrewProgress? _groupProgress;
+  bool _leaving = false;
 
   Offset _dragOffset = Offset.zero;
   bool _dragging = false;
@@ -77,19 +98,59 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     final g = widget.group;
     if (g != null) {
       _progressSub = _service
-          .watchGroupProgress(widget.session.id, g.id)
+          .watchCrewProgress(widget.session.id, g.id)
           .listen((p) {
             if (mounted) setState(() => _groupProgress = p);
-          });
+          }, onError: (_) {});
+      // The host can reveal before everyone's done; follow them there.
+      _statusSub = _service.watchSessionStatus(widget.session.id).listen((st) {
+        if (st == 'revealed' || st == 'completed') _goToResults(celebrate: true);
+      }, onError: (_) {});
     }
+    if (widget.resume) _skipSwiped();
   }
 
   @override
   void dispose() {
     _progressSub?.cancel();
+    _statusSub?.cancel();
     _flyCtrl.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _skipSwiped() async {
+    try {
+      final mine = await _service.getMySwipes(widget.session.id);
+      if (!mounted) return;
+      final next = _places.indexWhere((p) => !mine.containsKey(p.id));
+      setState(() {
+        _currentIndex = next == -1 ? _places.length : next;
+        _loadingSwipes = false;
+      });
+      if (next == -1) _finish();
+    } catch (_) {
+      // Start from the top; swipes are upserts, so repeats are harmless.
+      if (mounted) setState(() => _loadingSwipes = false);
+    }
+  }
+
+  /// Saves one swipe, retrying a couple of times before giving up on it.
+  Future<void> _record(String placeId, String direction) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await _service.recordSwipe(
+          sessionId: widget.session.id,
+          placeId: placeId,
+          direction: direction,
+        );
+        _unsaved.remove(placeId);
+        return;
+      } catch (_) {
+        await Future<void>.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+      }
+    }
+    _unsaved[placeId] = direction;
   }
 
   // ─── Swipe ─────────────────────────────────────────────────────────────────
@@ -117,17 +178,7 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
       begin: _dragOffset,
       end: target,
     ).animate(CurvedAnimation(parent: _flyCtrl, curve: AppMotion.easeOut));
-    unawaited(() async {
-      try {
-        await _service.recordSwipe(
-          sessionId: widget.session.id,
-          placeId: _current!.id!,
-          direction: direction,
-        );
-      } catch (_) {
-        // Fire-and-forget; the service retries in the background.
-      }
-    }());
+    _inFlight.add(_record(_current!.id!, direction));
 
     await _flyCtrl.forward(from: 0);
     if (!mounted) return;
@@ -141,33 +192,62 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     _flyCtrl.value = 0;
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
 
-    if (_currentIndex >= _places.length) _showDone();
+    if (_currentIndex >= _places.length) _finish();
   }
 
-  void _showDone() {
-    if (widget.group != null) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder:
-              (_) => _WaitingScreen(
-                session: widget.session,
-                group: widget.group!,
-                service: _service,
-              ),
-        ),
-      );
-    } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder:
-              (_) => ResultsScreen(
-                session: widget.session,
-                group: widget.group,
-                service: widget.service,
-              ),
-        ),
-      );
+  /// Out of cards. Make sure every swipe is saved, then: a crew waits for the
+  /// host's reveal; a solo swiper goes straight to their picks.
+  Future<void> _finish() async {
+    setState(() {
+      _finishing = true;
+      _saveFailed = false;
+    });
+
+    await Future.wait(_inFlight);
+    _inFlight.clear();
+    for (final e in Map.of(_unsaved).entries) {
+      await _record(e.key, e.value);
     }
+    if (!mounted) return;
+    if (_unsaved.isNotEmpty) {
+      setState(() => _saveFailed = true);
+      return;
+    }
+
+    if (widget.group != null) {
+      if (_leaving) return;
+      _leaving = true;
+      Navigator.of(context).pushReplacement(MaterialPageRoute(
+        builder: (_) => RevealScreen(
+          session: widget.session,
+          group: widget.group!,
+          service: _service,
+        ),
+      ));
+      return;
+    }
+
+    try {
+      final results = await _service.computeResults(widget.session.id);
+      if (!mounted) return;
+      _goToResults(results: results);
+    } catch (_) {
+      if (mounted) setState(() => _saveFailed = true);
+    }
+  }
+
+  void _goToResults({List<PlaceResult>? results, bool celebrate = false}) {
+    if (_leaving || !mounted) return;
+    _leaving = true;
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => ResultsScreen(
+        session: widget.session,
+        group: widget.group,
+        service: _service,
+        precomputedResults: results,
+        celebrate: celebrate,
+      ),
+    ));
   }
 
   // Horizontal-only drag, so the details below the hero still scroll freely.
@@ -211,20 +291,33 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+
     if (_places.isEmpty) {
-      return Scaffold(
-        backgroundColor: AppColors.surfaceInverse,
-        body: Center(
-          child: Text(
-            'Nothing to swipe on yet.',
-            style: AppTextStyles.body.copyWith(color: AppColors.textOnDark),
-          ),
+      return _DarkMessage(
+        title: l10n.swipeNothingTitle,
+        body: l10n.swipeNothingBody,
+      );
+    }
+
+    if (_saveFailed) {
+      return _DarkMessage(
+        title: l10n.swipeSaveFailedTitle,
+        body: l10n.errorCheckConnection,
+        action: HangoutButton(
+          label: l10n.actionTryAgain,
+          onPressed: _finish,
         ),
       );
     }
 
-    if (_currentIndex >= _places.length) {
-      return const Scaffold(backgroundColor: AppColors.surfaceInverse);
+    if (_loadingSwipes || _finishing || _currentIndex >= _places.length) {
+      return const Scaffold(
+        backgroundColor: AppColors.surfaceInverse,
+        body: Center(
+          child: CircularProgressIndicator(color: AppColors.textOnDark),
+        ),
+      );
     }
 
     final size = MediaQuery.of(context).size;
@@ -281,7 +374,7 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
               child: HangoutIconButton(
                 icon: Icons.close_rounded,
                 variant: HangoutIconButtonVariant.glass,
-                tooltip: 'Close',
+                tooltip: l10n.actionClose,
                 size: 40,
                 onPressed: () => Navigator.of(context).pop(),
               ),
@@ -341,7 +434,7 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
                         ),
                       ),
                       child: Text(
-                        isYes ? "I'm in" : 'Nope',
+                        isYes ? context.l10n.swipeYes : context.l10n.swipeNo,
                         style: AppTextStyles.statNumber(26).copyWith(
                           color:
                               isYes
@@ -362,6 +455,7 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
 
   Widget _buildBottomActions() {
     final p = _dragProgress;
+    final l10n = context.l10n;
 
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -388,7 +482,7 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
             child: HangoutIconButton(
               icon: Icons.close_rounded,
               size: 58,
-              tooltip: 'Pass',
+              tooltip: l10n.swipePass,
               iconColor: AppColors.danger,
               variant: HangoutIconButtonVariant.surface,
               onPressed: _swiping ? null : () => _swipe('no'),
@@ -399,7 +493,7 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
             child: HangoutIconButton(
               icon: Icons.favorite_rounded,
               size: 72,
-              tooltip: "I'm in",
+              tooltip: l10n.swipeYes,
               variant: HangoutIconButtonVariant.fresh,
               onPressed: _swiping ? null : () => _swipe('yes'),
             ),
@@ -407,7 +501,7 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
           HangoutIconButton(
             icon: Icons.info_outline_rounded,
             size: 58,
-            tooltip: 'Details',
+            tooltip: l10n.swipeDetails,
             variant: HangoutIconButtonVariant.surface,
             iconColor: AppColors.textMuted,
             onPressed: _scrollToDetails,
@@ -456,12 +550,11 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
     );
   }
 
-  Widget _buildGroupProgressStrip(
-    ({int membersFinished, int totalMembers}) progress,
-  ) {
-    final done = progress.membersFinished;
-    final total = progress.totalMembers;
-    final allDone = done >= total;
+  Widget _buildGroupProgressStrip(CrewProgress progress) {
+    final done = progress.finished;
+    final total = progress.total;
+    final allDone = progress.allDone;
+    final l10n = context.l10n;
 
     return Positioned(
       top: MediaQuery.of(context).padding.top + 54,
@@ -489,7 +582,9 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
-                  allDone ? "Everyone's voted" : '$done of $total friends done',
+                  allDone
+                      ? l10n.swipeCrewAllDone
+                      : l10n.swipeCrewProgress(done, total),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.captionStrong.copyWith(
@@ -676,7 +771,9 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
                             place.isOpenNow!
                                 ? Icons.schedule_rounded
                                 : Icons.schedule_outlined,
-                            place.openStatusDisplay,
+                            place.isOpenNow!
+                                ? context.l10n.placeOpenNow
+                                : context.l10n.placeClosed,
                             fresh: place.isOpenNow!,
                           ),
                       ],
@@ -814,11 +911,11 @@ class _PlaceSwipeScreenState extends State<PlaceSwipeScreen>
 
           if (place.reviews.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.x8),
-            const SectionHeader(title: 'What people say'),
+            SectionHeader(title: context.l10n.placeReviewsTitle),
             const SizedBox(height: AppSpacing.x3),
             HangoutListGroup(
               children: [
-                for (final r in place.reviews.take(3)) _ReviewTile(review: r),
+                for (final r in place.reviews.take(3)) ReviewTile(review: r),
               ],
             ),
           ],
@@ -857,423 +954,53 @@ class _PeekCard extends StatelessWidget {
   }
 }
 
-// ─── Review tile ──────────────────────────────────────────────────────────────
+// ─── Messages on the dark stage ───────────────────────────────────────────────
 
-class _ReviewTile extends StatelessWidget {
-  final PlaceReview review;
+class _DarkMessage extends StatelessWidget {
+  final String title;
+  final String body;
+  final Widget? action;
 
-  const _ReviewTile({required this.review});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.x4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              HangoutAvatar(name: review.authorName, size: 32),
-              const SizedBox(width: AppSpacing.x2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      review.authorName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.captionStrong,
-                    ),
-                    if (review.relativeTime != null)
-                      Text(review.relativeTime!, style: AppTextStyles.caption),
-                  ],
-                ),
-              ),
-              if (review.rating != null) HangoutBadge.rating(review.rating!),
-            ],
-          ),
-          if (review.text.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.x3),
-            Text(
-              review.text,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.small,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Waiting on the crew ──────────────────────────────────────────────────────
-
-class _WaitingScreen extends StatefulWidget {
-  final SessionModel session;
-  final Group group;
-  final SessionService service;
-
-  const _WaitingScreen({
-    required this.session,
-    required this.group,
-    required this.service,
-  });
-
-  @override
-  State<_WaitingScreen> createState() => _WaitingScreenState();
-}
-
-class _WaitingScreenState extends State<_WaitingScreen> {
-  StreamSubscription<({int membersFinished, int totalMembers})>? _sub;
-  ({int membersFinished, int totalMembers})? _progress;
-  bool _navigating = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _sub = widget.service
-        .watchGroupProgress(widget.session.id, widget.group.id)
-        .listen((p) async {
-          if (!mounted) return;
-          setState(() => _progress = p);
-
-          if (p.membersFinished >= p.totalMembers && !_navigating) {
-            _navigating = true;
-            try {
-              final results = await widget.service.computeResults(
-                widget.session.id,
-              );
-              if (!mounted) return;
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(
-                  builder:
-                      (_) => ResultsScreen(
-                        session: widget.session,
-                        group: widget.group,
-                        service: widget.service,
-                        precomputedResults: results,
-                      ),
-                ),
-              );
-            } catch (_) {
-              if (mounted) setState(() => _navigating = false);
-            }
-          }
-        });
-  }
-
-  @override
-  void dispose() {
-    _sub?.cancel();
-    super.dispose();
-  }
+  const _DarkMessage({required this.title, required this.body, this.action});
 
   @override
   Widget build(BuildContext context) {
-    final done = _progress?.membersFinished ?? 0;
-    final total = _progress?.totalMembers ?? widget.group.members.length;
-
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.surfaceInverse,
       appBar: AppBar(
-        leading: HangoutBackButton(
+        backgroundColor: Colors.transparent,
+        leading: HangoutIconButton(
           icon: Icons.close_rounded,
-          onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+          iconColor: AppColors.textOnDark,
+          tooltip: context.l10n.actionClose,
+          onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: ListView(
+      body: Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.gutter,
-          AppSpacing.x6,
+          AppSpacing.x8,
           AppSpacing.gutter,
           AppSpacing.x8,
         ),
-        children: [
-          const Icon(
-            Icons.check_circle_rounded,
-            size: 40,
-            color: AppColors.accentFresh,
-          ),
-          const SizedBox(height: AppSpacing.x4),
-          Text('You’re in ✓', style: AppTextStyles.h1),
-          const SizedBox(height: 4),
-          Text(
-            'Results land as soon as everyone in ${widget.group.name} is done '
-            'swiping. We’ll bring you straight there.',
-            style: AppTextStyles.body,
-          ),
-          const SizedBox(height: AppSpacing.x8),
-          Row(
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween<double>(
-                      begin: 0,
-                      end: total > 0 ? done / total : 0,
-                    ),
-                    duration: AppMotion.slow,
-                    curve: AppMotion.easeOut,
-                    builder:
-                        (context, v, _) => LinearProgressIndicator(
-                          value: v,
-                          minHeight: 6,
-                          backgroundColor: AppColors.surfaceSunken,
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                            AppColors.accentFresh,
-                          ),
-                        ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.x3),
-              Text('$done of $total done', style: AppTextStyles.smallStrong),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Results ──────────────────────────────────────────────────────────────────
-
-class ResultsScreen extends StatefulWidget {
-  final SessionModel session;
-  final Group? group;
-  /// Needed only to compute results that weren't passed in.
-  final SessionService? service;
-  final List<PlaceResult>? precomputedResults;
-
-  const ResultsScreen({
-    super.key,
-    required this.session,
-    required this.group,
-    this.service,
-    this.precomputedResults,
-  });
-
-  @override
-  State<ResultsScreen> createState() => _ResultsScreenState();
-}
-
-class _ResultsScreenState extends State<ResultsScreen> {
-  List<PlaceResult>? _results;
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.precomputedResults != null) {
-      _results = widget.precomputedResults;
-      _loading = false;
-    } else {
-      _compute();
-    }
-  }
-
-  Future<void> _compute() async {
-    try {
-      final results = await (widget.service ?? SessionService())
-          .computeResults(widget.session.id);
-      if (!mounted) return;
-      setState(() {
-        _results = results;
-        _loading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = "We couldn't tally the votes.";
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        leading: HangoutBackButton(
-          icon: Icons.close_rounded,
-          onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
-        ),
-      ),
-      body: _buildBody(),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.x8),
-          child: Text(
-            _error!,
-            textAlign: TextAlign.center,
-            style: AppTextStyles.body,
-          ),
-        ),
-      );
-    }
-
-    if (_results == null || _results!.isEmpty) {
-      return Center(
-        child: Text('Nobody voted yet.', style: AppTextStyles.body),
-      );
-    }
-
-    final shown = _results!.take(10).toList();
-    final winner = shown.first.isWinner ? shown.first : null;
-    final rest = winner == null ? shown : shown.sublist(1);
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.x2,
-        AppSpacing.gutter,
-        AppSpacing.x10,
-      ),
-      children: [
-        Text(
-          winner != null ? 'It’s decided' : 'No clear winner',
-          style: AppTextStyles.h1,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          winner != null
-              ? (widget.group != null
-                  ? '${widget.group!.name} picked a place.'
-                  : 'Here’s where you’re going.')
-              : 'Nobody said yes to anything this round.',
-          style: AppTextStyles.body,
-        ),
-        const SizedBox(height: AppSpacing.x6),
-        if (winner != null) _WinnerCard(result: winner, onBook: _openBooking),
-        if (rest.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.x8),
-          SectionHeader(title: winner != null ? 'Runners-up' : 'How it went'),
-          const SizedBox(height: AppSpacing.x2),
-          HangoutListGroup(
-            children: [
-              for (final r in rest)
-                HangoutListRow(
-                  leading: ClipRRect(
-                    borderRadius: AppRadius.smAll,
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: HangoutPhoto(url: r.place.mainPhotoUrl),
-                    ),
-                  ),
-                  title: r.place.name,
-                  subtitle: '${r.yesVotes} yes · ${r.noVotes} no',
-                  trailing: Text(
-                    '${r.votePercent.round()}%',
-                    style: AppTextStyles.smallStrong,
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  Future<void> _openBooking(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-}
-
-/// The payoff. The winner gets the full image-forward treatment and the one
-/// primary action on the screen.
-class _WinnerCard extends StatelessWidget {
-  final PlaceResult result;
-  final ValueChanged<String> onBook;
-
-  const _WinnerCard({required this.result, required this.onBook});
-
-  @override
-  Widget build(BuildContext context) {
-    final place = result.place;
-    final total = result.yesVotes + result.noVotes;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: AppRadius.xlAll,
-        boxShadow: AppShadows.lg,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 10,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                HangoutPhoto(url: place.mainPhotoUrl),
-                if (place.rating != null)
-                  Positioned(
-                    top: 12,
-                    left: 12,
-                    child: HangoutBadge.rating(place.rating!),
-                  ),
-              ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: AppTextStyles.h2.copyWith(color: AppColors.textOnDark),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  place.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.h2,
-                ),
-                if (place.address != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    place.address!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.small,
-                  ),
-                ],
-                const SizedBox(height: 12),
-                Text(
-                  total == 0
-                      ? 'No votes recorded'
-                      : '${result.yesVotes} of $total said yes',
-                  style: AppTextStyles.smallStrong.copyWith(
-                    color: AppColors.avocado700,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.x5),
-                HangoutButton(
-                  label: 'Find it on Dineout',
-                  size: HangoutButtonSize.lg,
-                  block: true,
-                  iconRight: Icons.open_in_new_rounded,
-                  onPressed: () => onBook(place.dineoutUrl),
-                ),
-              ],
+            const SizedBox(height: AppSpacing.x2),
+            Text(
+              body,
+              style: AppTextStyles.body.copyWith(color: AppColors.sand300),
             ),
-          ),
-        ],
+            if (action != null) ...[
+              const SizedBox(height: AppSpacing.x5),
+              action!,
+            ],
+          ],
+        ),
       ),
     );
   }

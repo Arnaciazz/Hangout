@@ -50,6 +50,12 @@ class HangoutListRow extends StatelessWidget {
   final Color? titleColor;
   final bool showChevron;
 
+  /// Names stay on one line; an address or a sentence may need two.
+  final int titleMaxLines;
+
+  /// For a subtitle that is the row's news ("You owe Asha ₹600").
+  final Color? subtitleColor;
+
   const HangoutListRow({
     super.key,
     required this.title,
@@ -59,6 +65,8 @@ class HangoutListRow extends StatelessWidget {
     this.onTap,
     this.titleColor,
     this.showChevron = false,
+    this.titleMaxLines = 1,
+    this.subtitleColor,
   });
 
   @override
@@ -82,7 +90,7 @@ class HangoutListRow extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      maxLines: 1,
+                      maxLines: titleMaxLines,
                       overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.bodyStrong.copyWith(
                         color: titleColor ?? AppColors.textStrong,
@@ -92,9 +100,12 @@ class HangoutListRow extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         subtitle!,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.small,
+                        style: subtitleColor == null
+                            ? AppTextStyles.small
+                            : AppTextStyles.smallStrong
+                                .copyWith(color: subtitleColor),
                       ),
                     ],
                   ],

@@ -6,6 +6,7 @@
 
 import '../models/group.dart';
 import '../models/place.dart';
+import '../services/bill_service.dart';
 import '../services/history_service.dart';
 import '../services/session_service.dart';
 
@@ -137,3 +138,29 @@ List<PlaceResult> fixtureResults({bool withPhoto = true}) {
     r('Example Dhaba', 3, 1, 4),
   ];
 }
+
+/// A ₹2,400 bill split four ways. Friend 1 paid it.
+Bill fixtureBill({bool secondPaid = true}) => Bill(
+      id: 'b1',
+      sessionId: 's1',
+      payerId: 'u0',
+      payerName: 'Friend 1',
+      payerUpi: 'friend1@okexample',
+      totalPaise: 240000,
+      shares: [
+        BillShare(
+          userId: 'u0',
+          name: 'Friend 1',
+          amountPaise: 60000,
+          paidAt: DateTime(2026, 9, 25),
+        ),
+        BillShare(
+          userId: 'u1',
+          name: 'Friend 2',
+          amountPaise: 60000,
+          paidAt: secondPaid ? DateTime(2026, 9, 25) : null,
+        ),
+        const BillShare(userId: 'u2', name: 'Friend 3', amountPaise: 60000),
+        const BillShare(userId: 'u3', name: 'Friend 4', amountPaise: 60000),
+      ],
+    );

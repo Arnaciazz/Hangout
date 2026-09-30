@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../models/group.dart';
 import '../services/group_service.dart';
 import '../theme/app_colors.dart';
@@ -106,7 +107,7 @@ class CrewsView extends StatelessWidget {
             HangoutListRow(
               leading: HangoutAvatar(name: g.name, size: 40),
               title: g.name,
-              subtitle: crewMeta(g),
+              subtitle: crewMeta(context.l10n, g),
               showChevron: true,
               onTap: onOpen == null ? null : () => onOpen!(g),
             ),
@@ -127,15 +128,17 @@ class CrewsView extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text('Crews', style: AppTextStyles.h1)),
+              Expanded(
+                child: Text(context.l10n.crewsTitle, style: AppTextStyles.h1),
+              ),
               HangoutButton(
-                label: 'Join',
+                label: context.l10n.crewsJoin,
                 size: HangoutButtonSize.sm,
                 variant: HangoutButtonVariant.ghost,
                 onPressed: onJoin,
               ),
               HangoutButton(
-                label: 'New',
+                label: context.l10n.crewsNew,
                 iconLeft: Icons.add_rounded,
                 size: HangoutButtonSize.sm,
                 variant: HangoutButtonVariant.tonal,
@@ -144,7 +147,7 @@ class CrewsView extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 2),
-          Text('The people you decide with.', style: AppTextStyles.small),
+          Text(context.l10n.crewsSubtitle, style: AppTextStyles.small),
           const SizedBox(height: AppSpacing.x5),
           list,
         ],
@@ -153,11 +156,10 @@ class CrewsView extends StatelessWidget {
   }
 }
 
-/// "4 people · Food"
-String crewMeta(Group g) {
-  final n = g.memberCount;
-  return '$n ${n == 1 ? 'person' : 'people'} · ${g.mode == 'hunger' ? 'Food' : 'Places'}';
-}
+/// "Food · 4 people"
+String crewMeta(AppLocalizations l10n, Group g) => g.mode == 'hunger'
+    ? l10n.crewMetaFood(g.memberCount)
+    : l10n.crewMetaPlaces(g.memberCount);
 
 // ─── Crew list states ─────────────────────────────────────────────────────────
 
@@ -197,7 +199,7 @@ class _CrewsSkeleton extends StatelessWidget {
     );
 
     return Semantics(
-      label: 'Loading your crews',
+      label: context.l10n.crewsLoading,
       child: HangoutListGroup(children: [row(), row()]),
     );
   }
@@ -220,25 +222,21 @@ class _NoCrews extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('No crews yet', style: AppTextStyles.title),
+          Text(context.l10n.crewsEmptyTitle, style: AppTextStyles.title),
           const SizedBox(height: 4),
-          Text(
-            'A crew is the group you decide with. Start one and share the '
-            'code, or join a friend’s.',
-            style: AppTextStyles.small,
-          ),
+          Text(context.l10n.crewsEmptyBody, style: AppTextStyles.small),
           const SizedBox(height: AppSpacing.x4),
           Wrap(
             spacing: AppSpacing.x2,
             children: [
               HangoutButton(
-                label: 'Start a crew',
+                label: context.l10n.crewsStart,
                 size: HangoutButtonSize.sm,
                 variant: HangoutButtonVariant.tonal,
                 onPressed: onCreate,
               ),
               HangoutButton(
-                label: 'Join with a code',
+                label: context.l10n.crewsJoinWithCode,
                 size: HangoutButtonSize.sm,
                 variant: HangoutButtonVariant.secondary,
                 onPressed: onJoin,
@@ -265,10 +263,10 @@ class _CrewsError extends StatelessWidget {
             Icons.cloud_off_rounded,
             color: AppColors.textMuted,
           ),
-          title: "Couldn't load your crews",
-          subtitle: 'Check your connection',
+          title: context.l10n.crewsLoadFailed,
+          subtitle: context.l10n.errorCheckConnection,
           trailing: HangoutButton(
-            label: 'Retry',
+            label: context.l10n.crewsRetry,
             size: HangoutButtonSize.sm,
             variant: HangoutButtonVariant.ghost,
             onPressed: onRetry,
@@ -316,7 +314,9 @@ class _JoinCrewSheetState extends State<_JoinCrewSheet> {
       HapticFeedback.heavyImpact();
       setState(() {
         _loading = false;
-        _error = result.errorMessage ?? "That code didn't match a crew.";
+        _error = result.type == JoinResultType.full
+            ? context.l10n.joinFull(result.groupName ?? '')
+            : context.l10n.joinNotFound;
       });
       return;
     }
@@ -340,8 +340,8 @@ class _JoinCrewSheetState extends State<_JoinCrewSheet> {
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
       child: HangoutSheet(
-        title: 'Join a crew',
-        subtitle: 'Enter the 6-character code your friend shared.',
+        title: context.l10n.joinTitle,
+        subtitle: context.l10n.joinSubtitle,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -368,7 +368,7 @@ class _JoinCrewSheetState extends State<_JoinCrewSheet> {
             ),
             const SizedBox(height: AppSpacing.x4),
             HangoutButton(
-              label: 'Join crew',
+              label: context.l10n.joinButton,
               size: HangoutButtonSize.lg,
               block: true,
               loading: _loading,

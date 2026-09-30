@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../l10n/l10n.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
@@ -32,14 +33,27 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   @override
   void initState() {
     super.initState();
-    _goToCurrentLocation();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _goToCurrentLocation();
+    });
   }
 
-  Future<void> _goToCurrentLocation() async {
+  /// Centres on the person. Quiet on first open; when they asked (the
+  /// location button), says why it couldn't.
+  Future<void> _goToCurrentLocation({bool asked = false}) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    void explain(String message) {
+      if (asked) messenger.showSnackBar(SnackBar(content: Text(message)));
+    }
+
     setState(() => _locating = true);
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
+      if (!serviceEnabled) {
+        explain(l10n.pickerLocationOff);
+        return;
+      }
 
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -47,6 +61,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       }
       if (permission == LocationPermission.deniedForever ||
           permission == LocationPermission.denied) {
+        explain(l10n.pickerLocationDenied);
         return;
       }
 
@@ -57,6 +72,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         ),
       );
 
+      if (!mounted) return;
       final current = LatLng(pos.latitude, pos.longitude);
       setState(() => _picked = current);
 
@@ -81,6 +97,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       body: Stack(
         children: [
@@ -102,7 +119,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     Marker(
                       markerId: const MarkerId('picked'),
                       position: _picked!,
-                      infoWindow: const InfoWindow(title: 'Search here'),
+                      infoWindow: InfoWindow(title: l10n.pickerSearchHere),
                     ),
                   },
           ),
@@ -117,7 +134,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                   HangoutIconButton(
                     icon: Icons.arrow_back_rounded,
                     variant: HangoutIconButtonVariant.surface,
-                    tooltip: 'Back',
+                    tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                     size: 44,
                     onPressed: () => Navigator.of(context).pop(null),
                   ),
@@ -153,7 +170,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                           Expanded(
                             child: Text(
                               _picked == null
-                                  ? 'Tap the map to drop a pin'
+                                  ? l10n.pickerTapMap
                                   : '${_picked!.latitude.toStringAsFixed(4)}, '
                                       '${_picked!.longitude.toStringAsFixed(4)}',
                               maxLines: 1,
@@ -191,8 +208,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 : HangoutIconButton(
                     icon: Icons.my_location_rounded,
                     variant: HangoutIconButtonVariant.surface,
-                    tooltip: 'Use my location',
-                    onPressed: _goToCurrentLocation,
+                    tooltip: l10n.pickerMyLocation,
+                    onPressed: () => _goToCurrentLocation(asked: true),
                   ),
           ),
 
@@ -206,7 +223,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
                     AppSpacing.x3, AppSpacing.gutter, AppSpacing.x4),
                 child: HangoutButton(
-                  label: 'Search around here',
+                  label: l10n.pickerConfirm,
                   size: HangoutButtonSize.lg,
                   block: true,
                   iconLeft: Icons.search_rounded,

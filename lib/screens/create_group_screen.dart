@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../services/group_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
@@ -55,7 +56,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      _showError(e.toString().replaceFirst('Exception: ', ''));
+      _showError(context.l10n.errorGeneric);
     }
   }
 
@@ -68,6 +69,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(leading: const HangoutBackButton()),
@@ -75,14 +77,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
         padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter, AppSpacing.x2, AppSpacing.gutter, AppSpacing.x8),
         children: [
-          Text('New crew', style: AppTextStyles.h1),
+          Text(l10n.createTitle, style: AppTextStyles.h1),
           const SizedBox(height: 4),
-          Text(
-            'The people you decide with. You’ll get a code to share.',
-            style: AppTextStyles.body,
-          ),
+          Text(l10n.createSubtitle, style: AppTextStyles.body),
           const SizedBox(height: AppSpacing.x8),
-          Text('What will you decide?', style: AppTextStyles.smallStrong),
+          Text(l10n.createDecideLabel, style: AppTextStyles.smallStrong),
           const SizedBox(height: AppSpacing.x2),
           _ModeToggle(
             value: _mode,
@@ -101,13 +100,15 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               maxLength: 40,
               style: AppTextStyles.body.copyWith(color: AppColors.textStrong),
               decoration: InputDecoration(
-                labelText: 'Crew name',
-                hintText: _isHunger ? 'Friday dinner lot' : 'Weekend wanderers',
+                labelText: l10n.createNameLabel,
+                hintText: _isHunger
+                    ? l10n.createNameHintFood
+                    : l10n.createNameHintPlaces,
                 counterText: '',
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Give the crew a name';
-                if (v.trim().length < 2) return 'A bit longer than that';
+                if (v == null || v.trim().isEmpty) return l10n.createNameEmpty;
+                if (v.trim().length < 2) return l10n.createNameShort;
                 return null;
               },
               onFieldSubmitted: (_) => _create(),
@@ -117,7 +118,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       ),
       bottomNavigationBar: StickyActionBar(
         child: HangoutButton(
-          label: 'Create crew',
+          label: l10n.createButton,
           size: HangoutButtonSize.lg,
           block: true,
           loading: _loading,
@@ -184,8 +185,10 @@ class _ModeToggle extends StatelessWidget {
       ),
       child: Row(
         children: [
-          segment('hunger', Icons.restaurant_rounded, 'Food'),
-          segment('travel', Icons.explore_rounded, 'Places'),
+          segment('hunger', Icons.restaurant_rounded,
+              context.l10n.createModeFood),
+          segment('travel', Icons.explore_rounded,
+              context.l10n.createModePlaces),
         ],
       ),
     );

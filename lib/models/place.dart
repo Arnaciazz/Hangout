@@ -137,12 +137,33 @@ class Place {
     return 'https://www.eazydiner.com/search?q=$q';
   }
 
+  /// Turn-by-turn directions in Google Maps (the app if installed).
+  Uri get directionsUri {
+    final destination = lat != null && lng != null
+        ? '$lat,$lng'
+        : [name, if (address != null) address].join(', ');
+    return Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      'destination': destination,
+      if (googlePlaceId.isNotEmpty) 'destination_place_id': googlePlaceId,
+    });
+  }
+
+  /// The place's own Google Maps page.
+  Uri get mapsUri => googleMapsUri != null
+      ? Uri.parse(googleMapsUri!)
+      : Uri.https('www.google.com', '/maps/search/', {
+          'api': '1',
+          'query': [name, if (address != null) address].join(', '),
+        });
+
   // ── Factories ──────────────────────────────────────────────────────────────
 
   factory Place.fromGoogleJson(Map<String, dynamic> json, int order) {
     final displayName = json['displayName'] as Map<String, dynamic>?;
     final primaryType = json['primaryTypeDisplayName'] as Map<String, dynamic>?;
     final openingHours = json['regularOpeningHours'] as Map<String, dynamic>?;
+    final location = json['location'] as Map<String, dynamic>?;
 
     final photos = (json['photos'] as List<dynamic>?)
             ?.map((p) => PlacePhoto.fromJson(p as Map<String, dynamic>))
@@ -160,6 +181,8 @@ class Place {
       googlePlaceId: json['id'] as String? ?? '',
       name: displayName?['text'] as String? ?? 'Unknown',
       address: json['formattedAddress'] as String?,
+      lat: (location?['latitude'] as num?)?.toDouble(),
+      lng: (location?['longitude'] as num?)?.toDouble(),
       rating: (json['rating'] as num?)?.toDouble(),
       ratingCount: json['userRatingCount'] as int?,
       priceLevel: _parsePriceLevel(json['priceLevel']),

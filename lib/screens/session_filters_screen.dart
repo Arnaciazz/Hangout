@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
@@ -36,25 +37,45 @@ class SwipeFilters {
       radiusKm: radiusKm ?? this.radiusKm,
     );
   }
+
+  /// Stored on the session, so the host's choices survive reopening the lobby.
+  Map<String, dynamic> toJson() => {
+        'place_types': placeTypes,
+        'max_price': maxPrice,
+        'open_now_only': openNowOnly,
+        'radius_km': radiusKm,
+      };
+
+  factory SwipeFilters.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const SwipeFilters();
+    return SwipeFilters(
+      placeTypes: [
+        for (final t in (json['place_types'] as List? ?? const [])) t as String,
+      ],
+      maxPrice: (json['max_price'] as num?)?.toInt(),
+      openNowOnly: json['open_now_only'] as bool? ?? false,
+      radiusKm: ((json['radius_km'] as num?)?.toInt() ?? 3).clamp(1, 10),
+    );
+  }
 }
 
 const _sentinel = Object();
 
-typedef _Option = ({String label, List<String> types});
+typedef _Option = ({String id, List<String> types});
 
 const List<_Option> _hungerOptions = [
-  (label: 'Pizza', types: ['pizza_restaurant']),
-  (label: 'Burgers', types: ['hamburger_restaurant', 'fast_food_restaurant']),
-  (label: 'Sushi', types: ['sushi_restaurant', 'japanese_restaurant']),
-  (label: 'Noodles', types: ['ramen_restaurant', 'noodle_shop', 'chinese_restaurant']),
-  (label: 'Biryani', types: ['indian_restaurant']),
-  (label: 'Arabian', types: ['middle_eastern_restaurant']),
-  (label: 'Cafe', types: ['cafe']),
-  (label: 'Brewery', types: ['bar', 'brewery']),
-  (label: 'North Indian', types: ['north_indian_restaurant', 'indian_restaurant']),
-  (label: 'South Indian', types: ['indian_restaurant']),
-  (label: 'Breakfast', types: ['breakfast_restaurant', 'brunch_restaurant']),
-  (label: 'Desserts', types: [
+  (id: 'pizza', types: ['pizza_restaurant']),
+  (id: 'burgers', types: ['hamburger_restaurant', 'fast_food_restaurant']),
+  (id: 'sushi', types: ['sushi_restaurant', 'japanese_restaurant']),
+  (id: 'noodles', types: ['ramen_restaurant', 'noodle_shop', 'chinese_restaurant']),
+  (id: 'biryani', types: ['indian_restaurant']),
+  (id: 'arabian', types: ['middle_eastern_restaurant']),
+  (id: 'cafe', types: ['cafe']),
+  (id: 'brewery', types: ['bar', 'brewery']),
+  (id: 'north_indian', types: ['north_indian_restaurant', 'indian_restaurant']),
+  (id: 'south_indian', types: ['indian_restaurant']),
+  (id: 'breakfast', types: ['breakfast_restaurant', 'brunch_restaurant']),
+  (id: 'desserts', types: [
     'dessert_shop',
     'dessert_restaurant',
     'ice_cream_shop',
@@ -63,14 +84,36 @@ const List<_Option> _hungerOptions = [
 ];
 
 const List<_Option> _travelOptions = [
-  (label: 'Museums', types: ['museum']),
-  (label: 'Parks', types: ['park', 'national_park']),
-  (label: 'Amusement', types: ['amusement_park', 'amusement_center']),
-  (label: 'Art galleries', types: ['art_gallery']),
-  (label: 'Historic sites', types: ['historical_landmark', 'monument']),
-  (label: 'Shopping', types: ['shopping_mall', 'market']),
-  (label: 'Entertainment', types: ['tourist_attraction', 'performing_arts_theater']),
+  (id: 'museums', types: ['museum']),
+  (id: 'parks', types: ['park', 'national_park']),
+  (id: 'amusement', types: ['amusement_park', 'amusement_center']),
+  (id: 'galleries', types: ['art_gallery']),
+  (id: 'historic', types: ['historical_landmark', 'monument']),
+  (id: 'shopping', types: ['shopping_mall', 'market']),
+  (id: 'entertainment', types: ['tourist_attraction', 'performing_arts_theater']),
 ];
+
+String _optionLabel(AppLocalizations l10n, String id) => switch (id) {
+      'pizza' => l10n.catPizza,
+      'burgers' => l10n.catBurgers,
+      'sushi' => l10n.catSushi,
+      'noodles' => l10n.catNoodles,
+      'biryani' => l10n.catBiryani,
+      'arabian' => l10n.catArabian,
+      'cafe' => l10n.catCafe,
+      'brewery' => l10n.catBrewery,
+      'north_indian' => l10n.catNorthIndian,
+      'south_indian' => l10n.catSouthIndian,
+      'breakfast' => l10n.catBreakfast,
+      'desserts' => l10n.catDesserts,
+      'museums' => l10n.catMuseums,
+      'parks' => l10n.catParks,
+      'amusement' => l10n.catAmusement,
+      'galleries' => l10n.catGalleries,
+      'historic' => l10n.catHistoric,
+      'shopping' => l10n.catShopping,
+      _ => l10n.catEntertainment,
+    };
 
 class SessionFiltersScreen extends StatefulWidget {
   final String mode;
@@ -88,7 +131,7 @@ class SessionFiltersScreen extends StatefulWidget {
 
 class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
   late SwipeFilters _filters;
-  final Set<String> _selectedLabels = {};
+  final Set<String> _selected = {};
 
   bool get _isHunger => widget.mode == 'hunger';
   static const _accent = AppColors.brand;
@@ -104,11 +147,11 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
   void _toggleOption(_Option opt) {
     HapticFeedback.selectionClick();
     setState(() {
-      if (!_selectedLabels.remove(opt.label)) _selectedLabels.add(opt.label);
+      if (!_selected.remove(opt.id)) _selected.add(opt.id);
 
       final types = <String>{};
       for (final o in _options) {
-        if (_selectedLabels.contains(o.label)) types.addAll(o.types);
+        if (_selected.contains(o.id)) types.addAll(o.types);
       }
       _filters = _filters.copyWith(placeTypes: types.toList());
     });
@@ -116,6 +159,7 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -127,13 +171,13 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
         padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter, AppSpacing.x2, AppSpacing.gutter, AppSpacing.x8),
         children: [
-          Text('Narrow it down', style: AppTextStyles.h1),
+          Text(l10n.filtersTitle, style: AppTextStyles.h1),
           const SizedBox(height: 4),
-          Text('Everything here is optional.', style: AppTextStyles.body),
+          Text(l10n.filtersBody, style: AppTextStyles.body),
           const SizedBox(height: AppSpacing.x8),
           _sectionHeader(
-            _isHunger ? 'Craving' : 'Categories',
-            'Pick a few, or leave it open.',
+            _isHunger ? l10n.filtersCraving : l10n.filtersCategories,
+            l10n.filtersPickFew,
           ),
           const SizedBox(height: AppSpacing.x3),
           Wrap(
@@ -142,8 +186,8 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
             children: [
               for (final opt in _options)
                 _ChoiceChip(
-                  label: opt.label,
-                  selected: _selectedLabels.contains(opt.label),
+                  label: _optionLabel(l10n, opt.id),
+                  selected: _selected.contains(opt.id),
                   accent: _accent,
                   tint: _accentTint,
                   onTap: () => _toggleOption(opt),
@@ -152,14 +196,14 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
           ),
 
           const SizedBox(height: AppSpacing.x8),
-          _sectionHeader('Budget', 'Skip anything pricier.'),
+          _sectionHeader(l10n.filtersBudget, l10n.filtersBudgetHint),
           const SizedBox(height: AppSpacing.x3),
           Wrap(
             spacing: AppSpacing.x2,
             runSpacing: AppSpacing.x2,
             children: [
               _ChoiceChip(
-                label: 'Any',
+                label: l10n.filtersAny,
                 selected: _filters.maxPrice == null,
                 accent: _accent,
                 tint: _accentTint,
@@ -177,7 +221,7 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
           ),
 
           const SizedBox(height: AppSpacing.x8),
-          _sectionHeader('Open now', 'Only somewhere you can walk into.'),
+          _sectionHeader(l10n.filtersOpenNow, l10n.filtersOpenNowHint),
           SwitchListTile(
             value: _filters.openNowOnly,
             onChanged: (v) {
@@ -187,14 +231,12 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
             activeThumbColor: Colors.white,
             activeTrackColor: _accent,
             contentPadding: EdgeInsets.zero,
-            title: Text(
-              'Only places open now',
-              style: AppTextStyles.body,
-            ),
+            title: Text(l10n.filtersOpenNowSwitch, style: AppTextStyles.body),
           ),
 
           const SizedBox(height: AppSpacing.x6),
-          _sectionHeader('How far', '${_filters.radiusKm} km from your spot.'),
+          _sectionHeader(
+              l10n.filtersHowFar, l10n.filtersHowFarHint(_filters.radiusKm)),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: _accent,
@@ -209,7 +251,7 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
               min: 1,
               max: 10,
               divisions: 9,
-              label: '${_filters.radiusKm} km',
+              label: l10n.filtersKm(_filters.radiusKm),
               onChanged: (v) => setState(
                   () => _filters = _filters.copyWith(radiusKm: v.round())),
             ),
@@ -217,8 +259,8 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('1 km', style: AppTextStyles.caption),
-              Text('10 km', style: AppTextStyles.caption),
+              Text(l10n.filtersKm(1), style: AppTextStyles.caption),
+              Text(l10n.filtersKm(10), style: AppTextStyles.caption),
             ],
           ),
 
@@ -226,7 +268,7 @@ class _SessionFiltersScreenState extends State<SessionFiltersScreen> {
       ),
       bottomNavigationBar: StickyActionBar(
         child: HangoutButton(
-          label: _isHunger ? 'Find places to eat' : 'Find places to go',
+          label: _isHunger ? l10n.setupFindFood : l10n.setupFindPlaces,
           size: HangoutButtonSize.lg,
           block: true,
           onPressed: () {

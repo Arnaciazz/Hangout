@@ -20,6 +20,7 @@ class PlacesService {
       'places.id,'
       'places.displayName,'
       'places.formattedAddress,'
+      'places.location,'
       'places.rating,'
       'places.userRatingCount,'
       'places.priceLevel,'

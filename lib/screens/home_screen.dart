@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../l10n/l10n.dart';
 import '../services/group_service.dart';
 import '../services/history_service.dart';
 import '../services/profile_service.dart';
@@ -8,6 +9,7 @@ import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
+import '../utils/dates.dart';
 import '../widgets/dino_avatar.dart';
 import '../widgets/hangout_card.dart';
 import '../widgets/hangout_button.dart';
@@ -78,14 +80,14 @@ class _HomeScreenState extends State<HomeScreen> {
         final session = await SessionService().getSessionWithPlaces(a.sessionId);
         if (!mounted) return;
         await Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => PlaceSwipeScreen(session: session),
+          builder: (_) => PlaceSwipeScreen(session: session, resume: true),
         ));
       }
       _load();
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't open that hangout. Try again.")),
+        SnackBar(content: Text(context.l10n.homeOpenFailed)),
       );
     }
   }
@@ -154,6 +156,7 @@ class HomeView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final name = nickname ?? '';
 
     return Scaffold(
@@ -174,7 +177,7 @@ class HomeView extends StatelessWidget {
                 padding: const EdgeInsets.only(right: AppSpacing.x3),
                 child: Semantics(
                   button: true,
-                  label: 'Your profile',
+                  label: l10n.homeProfile,
                   child: Pressable(
                     onTap: onOpenProfile,
                     scale: 0.9,
@@ -201,7 +204,7 @@ class HomeView extends StatelessWidget {
             sliver: SliverList.list(
               children: [
                 Text(
-                  now.hour < 17 ? 'Where to today?' : 'Where to tonight?',
+                  now.hour < 17 ? l10n.homeGreetingDay : l10n.homeGreetingNight,
                   style: AppTextStyles.h1,
                 ),
                 const SizedBox(height: AppSpacing.x5),
@@ -209,7 +212,7 @@ class HomeView extends StatelessWidget {
                   children: [
                     Expanded(
                       child: HangoutButton(
-                        label: 'Eat',
+                        label: l10n.homeEat,
                         iconLeft: Icons.restaurant_rounded,
                         size: HangoutButtonSize.lg,
                         variant: HangoutButtonVariant.secondary,
@@ -220,7 +223,7 @@ class HomeView extends StatelessWidget {
                     const SizedBox(width: AppSpacing.x3),
                     Expanded(
                       child: HangoutButton(
-                        label: 'Explore',
+                        label: l10n.homeExplore,
                         iconLeft: Icons.explore_rounded,
                         size: HangoutButtonSize.lg,
                         variant: HangoutButtonVariant.secondary,
@@ -237,8 +240,8 @@ class HomeView extends StatelessWidget {
                 if (lastTime != null) ...[
                   const SizedBox(height: AppSpacing.x8),
                   SectionHeader(
-                    title: 'Last time',
-                    action: 'All memories',
+                    title: l10n.homeLastTime,
+                    action: l10n.homeAllMemories,
                     onAction: onOpenMemories,
                   ),
                   const SizedBox(height: AppSpacing.x2),
@@ -264,10 +267,13 @@ class _InProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final swiping = hangout.status == 'swiping';
-    final who = hangout.groupName ?? 'Just you';
-    final what = hangout.mode == 'hunger' ? 'somewhere to eat' : 'somewhere to go';
-    final state = swiping ? 'Swiping for $what' : 'Dropping pins for $what';
+    final food = hangout.mode == 'hunger';
+    final who = hangout.groupName ?? l10n.memoryJustYou;
+    final state = swiping
+        ? (food ? l10n.homeSwipingFood : l10n.homeSwipingPlaces)
+        : (food ? l10n.homePinsFood : l10n.homePinsPlaces);
 
     return Pressable(
       onTap: onOpen,
@@ -312,7 +318,7 @@ class _InProgressCard extends StatelessWidget {
               ),
             ),
             HangoutButton(
-              label: swiping ? 'Swipe' : 'Open',
+              label: swiping ? l10n.crewSessionSwipe : l10n.crewSessionOpen,
               size: HangoutButtonSize.sm,
               variant: HangoutButtonVariant.tonal,
               onPressed: onOpen,
@@ -381,9 +387,10 @@ class _LastTimeCard extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     [
-                      memory.groupName ?? 'Just you',
-                      friendlyDate(memory.date),
-                      if (total > 0) '${memory.yesVotes} of $total said yes',
+                      memory.groupName ?? context.l10n.memoryJustYou,
+                      friendlyDate(context.l10n, memory.date),
+                      if (total > 0)
+                        context.l10n.resultsVotes(memory.yesVotes, total),
                     ].join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

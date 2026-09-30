@@ -10,19 +10,22 @@ class GroupService {
 
   // ─── Ensure user profile exists ───────────────────────────────────────────
 
+  /// Creates the profile row if the sign-up trigger didn't. Never overwrites
+  /// one: it used to reset everyone's crew name to their email, or to "User"
+  /// for phone sign-ins, on every create and join.
   Future<void> _ensureProfile() async {
     try {
       final user = _db.auth.currentUser!;
       final meta = user.userMetadata ?? {};
       final name = (meta['full_name'] as String?) ??
           (meta['name'] as String?) ??
-          user.email ??
+          user.email?.split('@').first ??
           'User';
       await _db.from('profiles').upsert({
         'id': user.id,
         'display_name': name,
         'avatar_url': meta['avatar_url'],
-      }, onConflict: 'id');
+      }, onConflict: 'id', ignoreDuplicates: true);
     } catch (_) {
       // Profile might already exist — continue regardless
     }

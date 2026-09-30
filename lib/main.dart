@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'config/app_config.dart';
+import 'l10n/l10n.dart';
 import 'theme/app_theme.dart';
 import 'widgets/bottom_nav_bar.dart';
 import 'widgets/hangout_background.dart';
@@ -16,6 +17,7 @@ import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/memory_screen.dart';
 import 'screens/profile_screen.dart';
+import 'services/notification_service.dart';
 import 'services/profile_service.dart';
 
 void main() async {
@@ -33,8 +35,17 @@ void main() async {
     }
   });
 
-  // Initialize Firebase (FCM + google-services.json)
-  await Firebase.initializeApp();
+  // Firebase carries push notifications only. If it can't start (a
+  // google-services.json that doesn't match the package, no Play services),
+  // the app still runs, just without push.
+  var firebaseReady = true;
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    firebaseReady = false;
+    debugPrint('Firebase unavailable, push disabled: $e');
+  }
+  NotificationService.instance.enabled = firebaseReady;
 
   // Initialize Supabase (auth + database + realtime)
   await Supabase.initialize(
@@ -48,17 +59,21 @@ void main() async {
     systemNavigationBarColor: Colors.transparent,
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
-  runApp(const ShuffleApp());
+  runApp(const HangoutApp());
 }
 
-class ShuffleApp extends StatelessWidget {
-  const ShuffleApp({super.key});
+class HangoutApp extends StatelessWidget {
+  const HangoutApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: NotificationService.instance.navigatorKey,
+      scaffoldMessengerKey: NotificationService.instance.messengerKey,
       builder: (context, child) => HangoutBackground(child: child!),
-      title: 'Hangout',
+      onGenerateTitle: (context) => context.l10n.appName,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const AuthGate(),
@@ -151,6 +166,13 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _index = 0;
   int _refresh = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Signed in and set up: register this device for crew notifications.
+    NotificationService.instance.start();
+  }
 
   void _select(int i) {
     setState(() {

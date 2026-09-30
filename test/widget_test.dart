@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shuffle/theme/app_colors.dart';
-import 'package:shuffle/theme/app_theme.dart';
-import 'package:shuffle/widgets/hangout_button.dart';
-import 'package:shuffle/widgets/hangout_chips.dart';
+import 'package:hangout/l10n/l10n.dart';
+import 'package:hangout/theme/app_colors.dart';
+import 'package:hangout/theme/app_theme.dart';
+import 'package:hangout/widgets/hangout_button.dart';
+import 'package:hangout/widgets/hangout_chips.dart';
 
 // The app itself boots Firebase and Supabase in main(), so a full-app smoke
 // test isn't meaningful here. These cover the design-system layer instead.
 
 Widget _host(Widget child) => MaterialApp(
       theme: AppTheme.lightTheme,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(body: Center(child: child)),
     );
 

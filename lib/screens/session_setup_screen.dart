@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../l10n/l10n.dart';
 import '../models/group.dart';
+import '../services/places_service.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/hangout_button.dart';
 import '../widgets/hangout_card.dart';
+import 'group_detail_screen.dart';
 import 'group_session_lobby_screen.dart';
 import 'location_picker_screen.dart';
 import 'place_swipe_screen.dart';
@@ -43,8 +46,6 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
   static const _accentTint = AppColors.brandTint;
   IconData get _modeIcon =>
       _isHunger ? Icons.restaurant_rounded : Icons.explore_rounded;
-  String get _placeHint =>
-      _isHunger ? 'Banjara Hills, Hyderabad' : 'Charminar, Hyderabad';
   HangoutButtonVariant get _ctaVariant => HangoutButtonVariant.primary;
 
   Future<void> _openMapPicker() async {
@@ -62,10 +63,53 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
     }
   }
 
+  /// A crew has one session going at a time. If there's one already, send the
+  /// person to it rather than starting a second that nobody else sees.
+  Future<bool> _crewAlreadyDeciding() async {
+    final l10n = context.l10n;
+    List<SessionSummary> active;
+    try {
+      active = await _service.getActiveSessions(widget.group!.id);
+    } catch (_) {
+      return false;
+    }
+    if (active.isEmpty || !mounted) return false;
+
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.setupAlreadyDecidingTitle),
+        content: Text(l10n.setupAlreadyDecidingBody(widget.group!.name),
+            style: AppTextStyles.small),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.actionCancel,
+                style: AppTextStyles.smallStrong
+                    .copyWith(color: AppColors.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.setupAlreadyDecidingOpen,
+                style:
+                    AppTextStyles.smallStrong.copyWith(color: AppColors.brand)),
+          ),
+        ],
+      ),
+    );
+    if (open == true && mounted) {
+      Navigator.of(context).pushReplacement(MaterialPageRoute(
+        builder: (_) => GroupDetailScreen(group: widget.group!),
+      ));
+    }
+    return true;
+  }
+
   Future<void> _findPlaces() async {
     // Group session: pick filters, then head to the lobby.
     if (widget.group != null) {
       FocusScope.of(context).unfocus();
+      if (await _crewAlreadyDeciding() || !mounted) return;
       final filters = await Navigator.of(context).push<SwipeFilters>(
         MaterialPageRoute(
           builder: (_) => SessionFiltersScreen(
@@ -85,6 +129,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
           groupId: widget.group!.id,
           mode: widget.mode,
           type: 'group',
+          filters: filters,
         );
         if (!mounted) return;
         Navigator.of(context).pushReplacement(MaterialPageRoute(
@@ -93,13 +138,14 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
             group: widget.group!,
             mode: widget.mode,
             filters: filters,
+            hostId: session.userId,
           ),
         ));
-      } on Exception catch (e) {
+      } catch (_) {
         if (!mounted) return;
         setState(() {
           _loading = false;
-          _error = e.toString().replaceFirst('Exception: ', '');
+          _error = context.l10n.errorGeneric;
         });
       }
       return;
@@ -110,7 +156,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
     final hasText = _ctrl.text.trim().isNotEmpty;
 
     if (!hasMap && !hasText) {
-      setState(() => _error = 'Drop a pin, or type an area name.');
+      setState(() => _error = context.l10n.setupNeedPlace);
       return;
     }
 
@@ -136,6 +182,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
         groupId: widget.group?.id,
         mode: widget.mode,
         type: widget.group != null ? 'group' : 'solo',
+        filters: filters,
       );
 
       final SessionModel populated;
@@ -168,8 +215,8 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
         setState(() {
           _loading = false;
           _error = _isHunger
-              ? "Nothing open around there. Try a wider radius?"
-              : "Nothing around there. Try a wider radius?";
+              ? context.l10n.setupNothingFood
+              : context.l10n.setupNothingPlaces;
         });
         return;
       }
@@ -178,11 +225,14 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
         builder: (_) =>
             PlaceSwipeScreen(session: populated, group: widget.group),
       ));
-    } on Exception catch (e) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = e is PlacesServiceException &&
+                e.message.startsWith('Geocoding failed')
+            ? context.l10n.setupAreaNotFound
+            : context.l10n.errorGeneric;
       });
     }
   }
@@ -194,7 +244,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
       appBar: AppBar(
         leading: const HangoutBackButton(),
         title: Text(
-          widget.group?.name ?? 'Just me',
+          widget.group?.name ?? context.l10n.setupJustMe,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: AppTextStyles.title,
@@ -229,6 +279,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
   // ─── Group flow ────────────────────────────────────────────────────────────
 
   Widget _buildGroupBody() {
+    final l10n = context.l10n;
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(
@@ -237,25 +288,22 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _isHunger ? 'Find food together' : 'Find a spot together',
+            _isHunger ? l10n.setupGroupTitleFood : l10n.setupGroupTitlePlaces,
             style: AppTextStyles.h1,
           ),
-          const SizedBox(height: AppSpacing.x3),
           const SizedBox(height: AppSpacing.x2),
-          Text('Here’s how it goes.', style: AppTextStyles.body),
+          Text(l10n.setupHowItGoes, style: AppTextStyles.body),
           const SizedBox(height: AppSpacing.x6),
-          _infoRow(Icons.place_rounded,
-              'Everyone drops a pin in the lobby'),
+          _infoRow(Icons.place_rounded, l10n.setupStepPins),
           const SizedBox(height: AppSpacing.x3),
           _infoRow(Icons.swipe_rounded,
-              'All ${widget.group!.members.length} of you swipe the same places'),
+              l10n.setupStepSwipe(widget.group!.members.length)),
           const SizedBox(height: AppSpacing.x3),
-          _infoRow(Icons.emoji_events_rounded,
-              'The place most of you want wins'),
+          _infoRow(Icons.emoji_events_rounded, l10n.setupStepReveal),
           _buildError(),
           const SizedBox(height: AppSpacing.x8),
           HangoutButton(
-            label: 'Open the lobby',
+            label: l10n.setupOpenLobby,
             size: HangoutButtonSize.lg,
             block: true,
             loading: _loading,
@@ -281,6 +329,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
   // ─── Solo flow ─────────────────────────────────────────────────────────────
 
   Widget _buildSoloBody() {
+    final l10n = context.l10n;
     final picked = _pickedLatLng != null;
 
     return SingleChildScrollView(
@@ -291,7 +340,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _isHunger ? 'Where are you eating?' : 'Where are you headed?',
+            _isHunger ? l10n.setupSoloTitleFood : l10n.setupSoloTitlePlaces,
             style: AppTextStyles.h1,
           ),
           const SizedBox(height: AppSpacing.x6),
@@ -321,7 +370,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(picked ? 'Pin dropped' : 'Pick on the map',
+                      Text(picked ? l10n.setupPinDropped : l10n.setupPickOnMap,
                           style: AppTextStyles.bodyStrong.copyWith(
                             color: picked ? _accent : AppColors.textStrong,
                           )),
@@ -329,7 +378,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
                       Text(
                         picked
                             ? '${_pickedLatLng!.latitude.toStringAsFixed(4)}, ${_pickedLatLng!.longitude.toStringAsFixed(4)}'
-                            : 'Open the map and drop a pin',
+                            : l10n.setupPickOnMapHint,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTextStyles.caption,
@@ -361,7 +410,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: AppSpacing.x3),
-                child: Text('or type an area', style: AppTextStyles.caption),
+                child: Text(l10n.setupOrTypeArea, style: AppTextStyles.caption),
               ),
               const Expanded(child: Divider()),
             ],
@@ -381,7 +430,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
             },
             onSubmitted: (_) => _findPlaces(),
             decoration: InputDecoration(
-              hintText: _placeHint,
+              hintText: _isHunger ? l10n.setupAreaHintFood : l10n.setupAreaHintPlaces,
               prefixIcon: const Padding(
                 padding: EdgeInsets.fromLTRB(16, 0, 10, 0),
                 child: Icon(Icons.search_rounded,
@@ -399,7 +448,7 @@ class _SessionSetupScreenState extends State<SessionSetupScreen> {
           const SizedBox(height: AppSpacing.x8),
 
           HangoutButton(
-            label: _isHunger ? 'Find places to eat' : 'Find places to go',
+            label: _isHunger ? l10n.setupFindFood : l10n.setupFindPlaces,
             size: HangoutButtonSize.lg,
             block: true,
             loading: _loading,

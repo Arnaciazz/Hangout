@@ -1,4 +1,4 @@
-package com.company.shuffle
+package app.hangout.android
 
 import io.flutter.embedding.android.FlutterActivity
 

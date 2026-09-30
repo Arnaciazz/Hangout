@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../l10n/l10n.dart';
+import '../models/group.dart';
+import '../services/group_service.dart';
 import '../services/history_service.dart';
+import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
+import '../utils/dates.dart';
 import '../widgets/hangout_button.dart';
 import '../widgets/hangout_card.dart';
 import '../widgets/hangout_chips.dart';
 import '../widgets/hangout_list.dart';
 import '../widgets/hangout_motion.dart';
+import 'results_screen.dart';
 
 /// Every hangout that landed on a winner, newest first.
 class MemoryScreen extends StatefulWidget {
@@ -26,6 +31,10 @@ class MemoryScreen extends StatefulWidget {
 class _MemoryScreenState extends State<MemoryScreen> {
   final _history = HistoryService();
   late Future<List<HangoutMemory>> _future = _history.fetchMemories();
+
+  /// Marked "Didn't go" this visit; hidden straight away, before the server
+  /// confirms, and shown again on Undo.
+  final _hidden = <String>{};
 
   @override
   void didUpdateWidget(covariant MemoryScreen old) {
@@ -52,7 +61,14 @@ class _MemoryScreenState extends State<MemoryScreen> {
           } else if (!snap.hasData) {
             body = const _LoadingState();
           } else {
-            body = MemoriesView(memories: snap.data!, onOpen: _openInMaps);
+            body = MemoriesView(
+              memories: [
+                for (final m in snap.data!)
+                  if (!_hidden.contains(m.sessionId)) m,
+              ],
+              onOpen: _open,
+              onDidntGo: _didntGo,
+            );
           }
           return RefreshIndicator(onRefresh: _reload, child: body);
         },
@@ -60,18 +76,66 @@ class _MemoryScreenState extends State<MemoryScreen> {
     );
   }
 
-  Future<void> _openInMaps(HangoutMemory m) async {
-    final place = m.winner;
-    if (place == null) return;
-    final uri = Uri.parse(place.googleMapsUri ??
-        'https://www.google.com/maps/search/?api=1&query='
-            '${Uri.encodeComponent('${place.name} ${place.address ?? ''}')}');
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
-        mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't open Maps.")),
-      );
+  /// The hangout's full results: winner, runners-up, and the bill.
+  Future<void> _open(HangoutMemory m) async {
+    Group? group;
+    if (m.groupId != null) {
+      try {
+        group = await GroupService().getGroupDetails(m.groupId!);
+      } catch (_) {}
+      if (!mounted) return;
+      if (group == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.memoryOpenFailed)),
+        );
+        return;
+      }
     }
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ResultsScreen(
+        session: SessionModel(
+          id: m.sessionId,
+          groupId: m.groupId,
+          userId: '',
+          mode: m.mode,
+          type: group == null ? 'solo' : 'group',
+          status: 'revealed',
+        ),
+        group: group,
+      ),
+    ));
+  }
+
+  /// "Didn't go": off this person's memories (and counts), with Undo.
+  Future<void> _didntGo(HangoutMemory m) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _hidden.add(m.sessionId));
+    try {
+      await _history.dismiss(m.sessionId);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _hidden.remove(m.sessionId));
+      messenger.showSnackBar(SnackBar(content: Text(l10n.errorGeneric)));
+      return;
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(l10n.memoryRemoved),
+        action: SnackBarAction(
+          label: l10n.actionUndo,
+          onPressed: () async {
+            try {
+              await _history.undoDismiss(m.sessionId);
+            } catch (_) {
+              return;
+            }
+            if (mounted) setState(() => _hidden.remove(m.sessionId));
+          },
+        ),
+      ));
   }
 }
 
@@ -80,11 +144,18 @@ class _MemoryScreenState extends State<MemoryScreen> {
 class MemoriesView extends StatelessWidget {
   final List<HangoutMemory> memories;
   final ValueChanged<HangoutMemory>? onOpen;
+  final ValueChanged<HangoutMemory>? onDidntGo;
 
-  const MemoriesView({super.key, required this.memories, this.onOpen});
+  const MemoriesView({
+    super.key,
+    required this.memories,
+    this.onOpen,
+    this.onDidntGo,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final latest = memories.isEmpty ? null : memories.first;
     final earlier = memories.length > 1 ? memories.sublist(1) : const <HangoutMemory>[];
 
@@ -97,32 +168,44 @@ class MemoriesView extends StatelessWidget {
         120,
       ),
       children: [
-        Text('Memories', style: AppTextStyles.h1),
+        Text(l10n.memoriesTitle, style: AppTextStyles.h1),
         const SizedBox(height: 2),
         Text(
           memories.isEmpty
-              ? 'Where your crews ended up'
-              : '${memories.length} ${memories.length == 1 ? 'hangout' : 'hangouts'} so far',
+              ? l10n.memoriesSubtitleEmpty
+              : l10n.memoriesCount(memories.length),
           style: AppTextStyles.small,
         ),
         const SizedBox(height: AppSpacing.x5),
         if (latest == null)
           const _EmptyState()
         else ...[
-          _LatestCard(memory: latest, onTap: () => onOpen?.call(latest)),
+          _LatestCard(
+            memory: latest,
+            onTap: () => onOpen?.call(latest),
+            onDidntGo:
+                onDidntGo == null ? null : () => onDidntGo!.call(latest),
+          ),
           if (earlier.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.x8),
-            const SectionHeader(title: 'Earlier'),
+            SectionHeader(title: l10n.memoriesEarlier),
             const SizedBox(height: AppSpacing.x2),
             HangoutListGroup(
               children: [
                 for (final m in earlier)
                   HangoutListRow(
                     leading: _Thumb(memory: m),
-                    title: m.winner?.name ?? 'No winner',
-                    subtitle: _meta(m),
-                    trailing: _Votes(memory: m),
-                    onTap: m.winner == null ? null : () => onOpen?.call(m),
+                    title: m.winner?.name ?? l10n.memoryNoWinner,
+                    subtitle: meta(context, m),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _Votes(memory: m),
+                        if (onDidntGo != null)
+                          _MemoryMenu(onDidntGo: () => onDidntGo!.call(m)),
+                      ],
+                    ),
+                    onTap: () => onOpen?.call(m),
                   ),
               ],
             ),
@@ -132,22 +215,79 @@ class MemoriesView extends StatelessWidget {
     );
   }
 
-  static String _meta(HangoutMemory m) =>
-      '${m.groupName ?? 'Just you'} · ${friendlyDate(m.date)}';
+  static String meta(BuildContext context, HangoutMemory m) =>
+      context.l10n.memoryMeta(
+        m.groupName ?? context.l10n.memoryJustYou,
+        friendlyDate(context.l10n, m.date),
+      );
+}
+
+/// The "Didn't go" option: hides a hangout from this person's memories only.
+class _MemoryMenu extends StatelessWidget {
+  final VoidCallback onDidntGo;
+  final bool onPhoto;
+
+  const _MemoryMenu({required this.onDidntGo, this.onPhoto = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return PopupMenuButton<String>(
+      tooltip: l10n.actionMore,
+      onSelected: (_) => onDidntGo(),
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'didnt-go',
+          child: Row(
+            children: [
+              const Icon(Icons.remove_circle_outline_rounded,
+                  size: 20, color: AppColors.textMuted),
+              const SizedBox(width: AppSpacing.x3),
+              Text(l10n.memoryDidntGo, style: AppTextStyles.body),
+            ],
+          ),
+        ),
+      ],
+      child: SizedBox(
+        width: 48,
+        height: 48,
+        child: Center(
+          child: onPhoto
+              ? Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceInverse.withValues(alpha: 0.45),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.more_vert_rounded,
+                      color: Colors.white, size: 20),
+                )
+              : const Icon(Icons.more_vert_rounded,
+                  color: AppColors.textMuted, size: 20),
+        ),
+      ),
+    );
+  }
 }
 
 class _LatestCard extends StatelessWidget {
   final HangoutMemory memory;
   final VoidCallback onTap;
+  final VoidCallback? onDidntGo;
 
-  const _LatestCard({required this.memory, required this.onTap});
+  const _LatestCard({
+    required this.memory,
+    required this.onTap,
+    this.onDidntGo,
+  });
 
   @override
   Widget build(BuildContext context) {
     final place = memory.winner;
 
     return Pressable(
-      onTap: place == null ? null : onTap,
+      onTap: onTap,
       scale: 0.98,
       child: Container(
         decoration: BoxDecoration(
@@ -176,6 +316,12 @@ class _LatestCard extends StatelessWidget {
                       left: 12,
                       child: HangoutBadge.rating(place!.rating!),
                     ),
+                  if (onDidntGo != null)
+                    Positioned(
+                      top: 2,
+                      right: 2,
+                      child: _MemoryMenu(onDidntGo: onDidntGo!, onPhoto: true),
+                    ),
                 ],
               ),
             ),
@@ -185,14 +331,14 @@ class _LatestCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    place?.name ?? 'No winner this time',
+                    place?.name ?? context.l10n.memoryNoWinnerLong,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.h3,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    MemoriesView._meta(memory),
+                    MemoriesView.meta(context, memory),
                     style: AppTextStyles.small,
                   ),
                   const SizedBox(height: 12),
@@ -240,14 +386,15 @@ class _Votes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final total = memory.yesVotes + memory.noVotes;
     if (memory.winner == null || total == 0) {
-      return Text(long ? 'Nobody said yes to anything' : '—',
+      return Text(long ? l10n.memoryNobodyYes : '—',
           style: AppTextStyles.caption);
     }
     final label = long
-        ? '${memory.yesVotes} of $total said yes'
-        : '${memory.yesVotes}/$total';
+        ? l10n.resultsVotes(memory.yesVotes, total)
+        : l10n.memoryVotesShort(memory.yesVotes, total);
     return Text(
       label,
       style: AppTextStyles.captionStrong.copyWith(color: AppColors.avocado700),
@@ -269,13 +416,9 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Nothing here yet', style: AppTextStyles.title),
+          Text(context.l10n.memoriesEmptyTitle, style: AppTextStyles.title),
           const SizedBox(height: 4),
-          Text(
-            'When a crew lands on a winner, it’s saved here — where '
-            'you went, who came, and how close the vote was.',
-            style: AppTextStyles.small,
-          ),
+          Text(context.l10n.memoriesEmptyBody, style: AppTextStyles.small),
         ],
       ),
     );
@@ -296,10 +439,10 @@ class _LoadingState extends StatelessWidget {
         120,
       ),
       children: [
-        Text('Memories', style: AppTextStyles.h1),
+        Text(context.l10n.memoriesTitle, style: AppTextStyles.h1),
         const SizedBox(height: AppSpacing.x5 + 22),
         Semantics(
-          label: 'Loading memories',
+          label: context.l10n.memoriesLoading,
           child: Container(
             height: 280,
             decoration: BoxDecoration(
@@ -329,16 +472,16 @@ class _ErrorState extends StatelessWidget {
         120,
       ),
       children: [
-        Text('Memories', style: AppTextStyles.h1),
+        Text(context.l10n.memoriesTitle, style: AppTextStyles.h1),
         const SizedBox(height: AppSpacing.x5),
-        Text("Couldn't load your hangouts.", style: AppTextStyles.bodyStrong),
+        Text(context.l10n.memoriesLoadFailed, style: AppTextStyles.bodyStrong),
         const SizedBox(height: 4),
-        Text('Check your connection and try again.', style: AppTextStyles.small),
+        Text(context.l10n.errorCheckConnection, style: AppTextStyles.small),
         const SizedBox(height: AppSpacing.x3),
         Align(
           alignment: Alignment.centerLeft,
           child: HangoutButton(
-            label: 'Try again',
+            label: context.l10n.actionTryAgain,
             size: HangoutButtonSize.sm,
             variant: HangoutButtonVariant.secondary,
             onPressed: onRetry,

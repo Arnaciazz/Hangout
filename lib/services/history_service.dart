@@ -7,6 +7,7 @@ import '../models/place.dart';
 class HangoutMemory {
   final String sessionId;
   final String mode; // 'hunger' | 'travel'
+  final String? groupId; // null for a solo session
   final String? groupName; // null for a solo session
   final DateTime date;
   final Place? winner; // null when nobody voted yes on anything
@@ -16,6 +17,7 @@ class HangoutMemory {
   const HangoutMemory({
     required this.sessionId,
     required this.mode,
+    this.groupId,
     required this.groupName,
     required this.date,
     required this.winner,
@@ -23,7 +25,7 @@ class HangoutMemory {
     required this.noVotes,
   });
 
-  bool get isSolo => groupName == null;
+  bool get isSolo => groupId == null && groupName == null;
 }
 
 /// A session still in progress that the user can act on.
@@ -68,12 +70,40 @@ class HistoryService {
       ? 'user_id.eq.$uid'
       : 'group_id.in.(${groupIds.join(',')}),user_id.eq.$uid';
 
-  /// Finished hangouts, newest first.
+  /// Session ids this person marked "Didn't go".
+  Future<Set<String>> _dismissedIds() async {
+    final uid = _uid;
+    if (uid == null) return const {};
+    final rows = await _db
+        .from('memory_dismissals')
+        .select('session_id')
+        .eq('user_id', uid);
+    return {for (final r in rows as List) r['session_id'] as String};
+  }
+
+  /// "Didn't go": hide a hangout from this person's memories and counts.
+  Future<void> dismiss(String sessionId) async {
+    await _db.from('memory_dismissals').upsert(
+      {'session_id': sessionId, 'user_id': _uid},
+      onConflict: 'session_id,user_id',
+    );
+  }
+
+  /// Undo a "Didn't go".
+  Future<void> undoDismiss(String sessionId) async {
+    await _db
+        .from('memory_dismissals')
+        .delete()
+        .eq('session_id', sessionId)
+        .eq('user_id', _uid!);
+  }
+
+  /// Finished hangouts, newest first, minus any marked "Didn't go".
   Future<List<HangoutMemory>> fetchMemories({int limit = 40}) async {
     final uid = _uid;
     if (uid == null) return const [];
 
-    final groupIds = await _myGroupIds();
+    final (groupIds, dismissed) = await (_myGroupIds(), _dismissedIds()).wait;
     final rows = await _db
         .from('sessions')
         .select(
@@ -89,7 +119,8 @@ class HistoryService {
         .limit(limit);
 
     return [
-      for (final r in rows as List) _memoryFrom(r as Map<String, dynamic>),
+      for (final r in rows as List)
+        if (!dismissed.contains(r['id'])) _memoryFrom(r as Map<String, dynamic>),
     ];
   }
 
@@ -104,6 +135,7 @@ class HistoryService {
     return HangoutMemory(
       sessionId: r['id'] as String,
       mode: r['mode'] as String? ?? 'hunger',
+      groupId: r['group_id'] as String?,
       groupName: (r['groups'] as Map<String, dynamic>?)?['name'] as String?,
       date: DateTime.parse(
         (r['completed_at'] ?? r['created_at']) as String,
@@ -144,44 +176,25 @@ class HistoryService {
     }
   }
 
-  /// How many hangouts reached a result, and how many crews I'm in.
+  /// How many hangouts reached a result (minus "Didn't go"), and how many
+  /// crews I'm in.
   Future<({int hangouts, int crews})> fetchCounts() async {
     final uid = _uid;
     if (uid == null) return (hangouts: 0, crews: 0);
 
     try {
-      final groupIds = await _myGroupIds();
+      final (groupIds, dismissed) = await (_myGroupIds(), _dismissedIds()).wait;
       final rows = await _db
           .from('sessions')
           .select('id')
           .inFilter('status', ['revealed', 'completed'])
           .or(_scope(uid, groupIds));
-      return (hangouts: (rows as List).length, crews: groupIds.length);
+      final hangouts =
+          (rows as List).where((r) => !dismissed.contains(r['id'])).length;
+      return (hangouts: hangouts, crews: groupIds.length);
     } catch (e) {
       debugPrint('[HistoryService] fetchCounts: $e');
       return (hangouts: 0, crews: 0);
     }
   }
 }
-
-/// "Today", "Yesterday", a weekday within the week, else "12 Oct".
-String friendlyDate(DateTime date, {DateTime? now}) {
-  final today = _dateOnly(now ?? DateTime.now());
-  final day = _dateOnly(date);
-  final diff = today.difference(day).inDays;
-
-  if (diff <= 0) return 'Today';
-  if (diff == 1) return 'Yesterday';
-  if (diff < 7) {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return days[date.weekday - 1];
-  }
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  final label = '${date.day} ${months[date.month - 1]}';
-  return date.year == today.year ? label : '$label ${date.year}';
-}
-
-DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);

@@ -3,17 +3,21 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shuffle/dev/fixtures.dart';
-import 'package:shuffle/screens/crews_screen.dart';
-import 'package:shuffle/screens/home_screen.dart';
-import 'package:shuffle/screens/memory_screen.dart';
-import 'package:shuffle/screens/place_swipe_screen.dart';
-import 'package:shuffle/screens/profile_screen.dart';
-import 'package:shuffle/screens/session_filters_screen.dart';
-import 'package:shuffle/theme/app_theme.dart';
-import 'package:shuffle/widgets/bottom_nav_bar.dart';
-import 'package:shuffle/widgets/dino_avatar.dart';
-import 'package:shuffle/widgets/hangout_background.dart';
+import 'package:hangout/l10n/l10n.dart';
+import 'package:hangout/dev/fixtures.dart';
+import 'package:hangout/screens/crews_screen.dart';
+import 'package:hangout/screens/home_screen.dart';
+import 'package:hangout/screens/memory_screen.dart';
+import 'package:hangout/screens/bill_screen.dart';
+import 'package:hangout/screens/place_detail_screen.dart';
+import 'package:hangout/screens/place_swipe_screen.dart';
+import 'package:hangout/screens/profile_screen.dart';
+import 'package:hangout/screens/results_screen.dart';
+import 'package:hangout/screens/session_filters_screen.dart';
+import 'package:hangout/theme/app_theme.dart';
+import 'package:hangout/widgets/bottom_nav_bar.dart';
+import 'package:hangout/widgets/dino_avatar.dart';
+import 'package:hangout/widgets/hangout_background.dart';
 
 import 'support/preview_support.dart';
 
@@ -34,6 +38,8 @@ void _noop() {}
 Widget _host(Widget child) => MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, c) => HangoutBackground(child: c!),
       home: child,
     );
@@ -109,7 +115,11 @@ void main() {
   testWidgets('preview: memories', (tester) async {
     _surface(tester, _phone);
     await tester.pumpWidget(_host(_tab(
-      MemoriesView(memories: fixtureMemories(_today), onOpen: (_) {}),
+      MemoriesView(
+        memories: fixtureMemories(_today),
+        onOpen: (_) {},
+        onDidntGo: (_) {},
+      ),
       2,
     )));
     await _shoot(tester, 'memories');
@@ -147,14 +157,68 @@ void main() {
     await _shoot(tester, 'swipe');
   });
 
+  Widget page(Widget body) => Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(leading: const BackButton()),
+        body: body,
+      );
+
   testWidgets('preview: results', (tester) async {
     _surface(tester, _phone);
-    await tester.pumpWidget(_host(ResultsScreen(
-      session: fixtureRevealedSession,
+    await tester.pumpWidget(_host(page(ResultsView(
+      results: fixtureResults(),
+      mode: 'hunger',
       group: fixtureCrews().first,
-      precomputedResults: fixtureResults(),
-    )));
+      myId: 'u2',
+      onOpenPlace: (_) {},
+      onOpenBill: _noop,
+      onStartAgain: _noop,
+    ))));
     await _shoot(tester, 'results');
+  });
+
+  testWidgets('preview: solo results', (tester) async {
+    _surface(tester, _phone);
+    await tester.pumpWidget(_host(page(ResultsView(
+      results: fixtureResults(),
+      mode: 'hunger',
+      group: null,
+      onOpenPlace: (_) {},
+      onStartAgain: _noop,
+    ))));
+    await _shoot(tester, 'results_solo');
+  });
+
+  testWidgets('preview: bill, owing', (tester) async {
+    _surface(tester, _phone);
+    await tester.pumpWidget(_host(page(BillView(
+      bill: fixtureBill(),
+      myId: 'u2',
+      placeName: 'Example Biryani House',
+      onAction: (_, [__]) {},
+    ))));
+    await _shoot(tester, 'bill_owe');
+  });
+
+  testWidgets('preview: bill, paid it', (tester) async {
+    _surface(tester, _phone);
+    await tester.pumpWidget(_host(page(BillView(
+      bill: fixtureBill(secondPaid: false),
+      myId: 'u0',
+      placeName: 'Example Biryani House',
+      onAction: (_, [__]) {},
+    ))));
+    await _shoot(tester, 'bill_payer');
+  });
+
+  testWidgets('preview: place detail', (tester) async {
+    _surface(tester, _phone);
+    await tester.pumpWidget(_host(PlaceDetailScreen(
+      place: fixtureSwipeSession().places.first,
+      mode: 'hunger',
+      voteLine: '4 of 5 said yes',
+    )));
+    await _shoot(tester, 'place_detail');
   });
 
   testWidgets('preview: avatars', (tester) async {

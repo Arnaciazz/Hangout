@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../l10n/l10n.dart';
 import '../models/group.dart';
 import '../services/group_service.dart';
-import '../services/history_service.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
+import '../utils/dates.dart';
+import '../utils/links.dart';
 import '../widgets/hangout_avatar.dart';
 import '../widgets/hangout_button.dart';
 import '../widgets/hangout_chips.dart';
 import '../widgets/hangout_list.dart';
 import 'group_session_lobby_screen.dart';
 import 'place_swipe_screen.dart';
-import 'session_filters_screen.dart';
 import 'session_setup_screen.dart';
 
 class GroupDetailScreen extends StatefulWidget {
@@ -54,8 +54,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
 
   Future<void> _loadSessions() async {
     try {
-      final active = await _sessionService.getActiveSessions(_group.id);
-      final past = await _sessionService.getPastSessions(_group.id);
+      final (active, past) = await (
+        _sessionService.getActiveSessions(_group.id),
+        _sessionService.getPastSessions(_group.id),
+      ).wait;
       if (mounted) {
         setState(() {
           _activeSession = active.isNotEmpty ? active.first : null;
@@ -68,44 +70,61 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     }
   }
 
+  /// Back into the session where it stands: the lobby, the deck (picking up
+  /// after your last swipe), or the reveal.
   Future<void> _openActiveSession() async {
     final s = _activeSession;
     if (s == null) return;
 
-    if (s.status == 'setup') {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => GroupSessionLobbyScreen(
-          sessionId: s.id,
-          group: _group,
-          mode: _group.mode,
-          filters: const SwipeFilters(),
-        ),
-      ));
-    } else if (s.status == 'swiping') {
-      try {
-        final session = await _sessionService.getSessionWithPlaces(s.id);
-        if (!mounted) return;
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => PlaceSwipeScreen(session: session, group: _group),
-        ));
-      } catch (e) {
-        if (mounted) _showError("Couldn't load that session.");
-      }
-    } else if (s.status == 'revealed') {
-      try {
-        final session = await _sessionService.getSessionWithPlaces(s.id);
-        if (!mounted) return;
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => ResultsScreen(
+    final SessionModel session;
+    try {
+      session = await _sessionService.getSessionWithPlaces(s.id);
+    } catch (_) {
+      if (mounted) _showError(context.l10n.crewSessionLoadFailed);
+      return;
+    }
+    if (!mounted) return;
+
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => switch (session.status) {
+        'setup' => GroupSessionLobbyScreen(
+            sessionId: session.id,
+            group: _group,
+            mode: session.mode,
+            filters: session.filters,
+            hostId: session.userId,
+          ),
+        'swiping' => PlaceSwipeScreen(
+            session: session,
+            group: _group,
+            service: _sessionService,
+            resume: true,
+          ),
+        _ => ResultsScreen(
             session: session,
             group: _group,
             service: _sessionService,
           ),
-        ));
-      } catch (e) {
-        if (mounted) _showError("Couldn't load the results.");
-      }
-    }
+      },
+    ));
+    _loadSessions();
+  }
+
+  void _openPast(SessionSummary p) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ResultsScreen(
+        session: SessionModel(
+          id: p.id,
+          groupId: _group.id,
+          userId: p.hostId ?? '',
+          mode: p.mode,
+          type: 'group',
+          status: p.status,
+        ),
+        group: _group,
+        service: _sessionService,
+      ),
+    ));
   }
 
   Future<void> _refreshCode() async {
@@ -124,7 +143,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
         );
       });
     } catch (_) {
-      _showError("Couldn't refresh that code.");
+      if (mounted) _showError(context.l10n.crewCodeRefreshFailed);
     } finally {
       if (mounted) setState(() => _loadingCode = false);
     }
@@ -133,54 +152,48 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   void _copyCode() {
     Clipboard.setData(ClipboardData(text: _group.inviteCode));
     HapticFeedback.lightImpact();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Code copied'),
-      duration: Duration(seconds: 2),
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.l10n.crewCodeCopied),
+      duration: const Duration(seconds: 2),
     ));
   }
 
-  Future<void> _shareWhatsApp() async {
-    final message = Uri.encodeComponent(
-      'Join my Hangout crew *${_group.name}*\n\n'
-      'Invite code: *${_group.inviteCode}*\n\n'
-      'Get Hangout and punch in the code.',
-    );
-    final uri = Uri.parse('whatsapp://send?text=$message');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-      return;
-    }
-
-    await Clipboard.setData(ClipboardData(
-      text: 'Join my Hangout crew "${_group.name}" — code: ${_group.inviteCode}',
-    ));
+  /// WhatsApp if it's there; the invite goes to the clipboard either way, so
+  /// it can be pasted anywhere.
+  Future<void> _shareInvite() async {
+    final l10n = context.l10n;
+    final text = l10n.crewInviteMessage(_group.name, _group.inviteCode);
+    await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text("WhatsApp isn't installed — invite copied instead"),
-    ));
+    await openLink(
+      context,
+      whatsAppShareUri(text),
+      failMessage: l10n.crewInviteCopied,
+    );
   }
 
   Future<void> _confirmLeave() async {
+    final l10n = context.l10n;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_amOwner ? 'Delete this crew?' : 'Leave this crew?'),
+        title: Text(_amOwner ? l10n.crewDeleteTitle : l10n.crewLeaveTitle),
         content: Text(
           _amOwner
-              ? 'This removes "${_group.name}" for everyone.'
-              : 'You\'ll drop out of "${_group.name}".',
+              ? l10n.crewDeleteBody(_group.name)
+              : l10n.crewLeaveBody(_group.name),
           style: AppTextStyles.small,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel',
+            child: Text(l10n.actionCancel,
                 style: AppTextStyles.smallStrong
                     .copyWith(color: AppColors.textMuted)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(_amOwner ? 'Delete' : 'Leave',
+            child: Text(_amOwner ? l10n.actionDelete : l10n.crewLeave,
                 style: AppTextStyles.smallStrong
                     .copyWith(color: AppColors.danger)),
           ),
@@ -196,8 +209,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
         await _service.leaveGroup(_group.id);
       }
       if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
-    } catch (e) {
-      if (mounted) _showError(e.toString().replaceFirst('Exception: ', ''));
+    } catch (_) {
+      if (mounted) _showError(context.l10n.errorGeneric);
     }
   }
 
@@ -212,6 +225,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final n = _group.memberCount;
 
     return Scaffold(
@@ -220,14 +234,14 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
         leading: const HangoutBackButton(),
         actions: [
           PopupMenuButton<String>(
-            tooltip: 'More',
+            tooltip: l10n.actionMore,
             icon: const Icon(Icons.more_vert_rounded),
             onSelected: (_) => _confirmLeave(),
             itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'leave',
                 child: Text(
-                  _amOwner ? 'Delete crew' : 'Leave crew',
+                  _amOwner ? l10n.crewDeleteMenu : l10n.crewLeaveMenu,
                   style: AppTextStyles.body.copyWith(color: AppColors.danger),
                 ),
               ),
@@ -250,7 +264,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                 Icon(_modeIcon, size: 16, color: AppColors.textMuted),
                 const SizedBox(width: 6),
                 Text(
-                  '${_isHunger ? 'Food' : 'Places'} · $n ${n == 1 ? 'person' : 'people'}',
+                  _isHunger ? l10n.crewMetaFood(n) : l10n.crewMetaPlaces(n),
                   style: AppTextStyles.small,
                 ),
               ],
@@ -258,11 +272,11 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
             const SizedBox(height: AppSpacing.x6),
             _buildSession(),
             const SizedBox(height: AppSpacing.x8),
-            const SectionHeader(title: 'Invite'),
+            SectionHeader(title: l10n.crewInviteTitle),
             const SizedBox(height: AppSpacing.x2),
             _buildInvite(),
             const SizedBox(height: AppSpacing.x8),
-            const SectionHeader(title: 'The crew'),
+            SectionHeader(title: l10n.crewMembersTitle),
             const SizedBox(height: AppSpacing.x2),
             HangoutListGroup(
               children: [
@@ -275,16 +289,16 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                     ),
                     title: m.displayName,
                     trailing: m.userId == _myId
-                        ? const HangoutBadge(label: 'You', tone: BadgeTone.neutral)
+                        ? HangoutBadge(label: l10n.badgeYou, tone: BadgeTone.neutral)
                         : (m.isOwner
-                            ? const HangoutBadge(label: 'Host', tone: BadgeTone.warm)
+                            ? HangoutBadge(label: l10n.badgeOwner, tone: BadgeTone.warm)
                             : null),
                   ),
               ],
             ),
             if (_pastSessions.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.x8),
-              const SectionHeader(title: 'Past hangouts'),
+              SectionHeader(title: l10n.crewPastTitle),
               const SizedBox(height: AppSpacing.x2),
               HangoutListGroup(
                 children: [
@@ -299,8 +313,13 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                           color: AppColors.textMuted,
                         ),
                       ),
-                      title: p.mode == 'hunger' ? 'Food' : 'Places',
-                      subtitle: friendlyDate(p.completedAt ?? p.createdAt),
+                      title: p.winnerName ?? l10n.memoryNoWinner,
+                      subtitle: friendlyDate(
+                        l10n,
+                        p.completedAt ?? p.createdAt,
+                      ),
+                      showChevron: true,
+                      onTap: () => _openPast(p),
                     ),
                 ],
               ),
@@ -313,6 +332,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
 
   /// The crew's one job: the session in progress, or the button to start one.
   Widget _buildSession() {
+    final l10n = context.l10n;
     if (_loadingSessions) {
       return Container(
         height: 56,
@@ -326,7 +346,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     final s = _activeSession;
     if (s == null) {
       return HangoutButton(
-        label: _isHunger ? 'Find somewhere to eat' : 'Find somewhere to go',
+        label: _isHunger ? l10n.crewFindFood : l10n.crewFindPlace,
         iconLeft: _modeIcon,
         size: HangoutButtonSize.lg,
         block: true,
@@ -343,10 +363,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     }
 
     final (String state, String action) = switch (s.status) {
-      'setup' => ('Waiting for everyone to drop a pin', 'Open'),
-      'swiping' => ('Swiping has started', 'Swipe'),
-      'revealed' => ('The results are in', 'See results'),
-      _ => ('In progress', 'Open'),
+      'setup' => (l10n.crewSessionSetup, l10n.crewSessionOpen),
+      _ => (l10n.crewSessionSwiping, l10n.crewSessionSwipe),
     };
 
     return Container(
@@ -373,7 +391,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _isHunger ? 'Picking somewhere to eat' : 'Picking somewhere to go',
+                  _isHunger ? l10n.crewPickingFood : l10n.crewPickingPlace,
                   style: AppTextStyles.bodyStrong,
                 ),
                 const SizedBox(height: 2),
@@ -392,6 +410,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   }
 
   Widget _buildInvite() {
+    final l10n = context.l10n;
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 6, 14),
       decoration: BoxDecoration(
@@ -409,7 +428,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Semantics(
-                      label: 'Invite code ${_group.inviteCode.split('').join(' ')}',
+                      label: l10n.crewInviteCodeSemantics(
+                          _group.inviteCode.split('').join(' ')),
                       child: ExcludeSemantics(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
@@ -423,27 +443,26 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text('Friends join with this code',
-                        style: AppTextStyles.caption),
+                    Text(l10n.crewInviteHint, style: AppTextStyles.caption),
                   ],
                 ),
               ),
               HangoutIconButton(
                 icon: Icons.copy_rounded,
-                tooltip: 'Copy code',
+                tooltip: l10n.crewCopyCode,
                 onPressed: _copyCode,
               ),
               HangoutIconButton(
                 icon: Icons.share_rounded,
-                tooltip: 'Share invite',
-                onPressed: _shareWhatsApp,
+                tooltip: l10n.crewShareInvite,
+                onPressed: _shareInvite,
               ),
             ],
           ),
           if (_amOwner) ...[
             const SizedBox(height: 4),
             HangoutButton(
-              label: _loadingCode ? 'Getting a new code…' : 'Get a new code',
+              label: _loadingCode ? l10n.crewNewCodeLoading : l10n.crewNewCode,
               size: HangoutButtonSize.sm,
               variant: HangoutButtonVariant.ghost,
               iconLeft: Icons.refresh_rounded,

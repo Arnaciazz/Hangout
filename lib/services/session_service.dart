@@ -47,23 +47,44 @@ class SessionSummary {
   final DateTime createdAt;
   final DateTime? completedAt;
 
+  /// The session's host: whoever started it. Only they can start swiping and
+  /// reveal the winner (the database lets only the creator update a session).
+  final String? hostId;
+
+  /// Name of the winning place, for finished sessions.
+  final String? winnerName;
+
   const SessionSummary({
     required this.id,
     required this.mode,
     required this.status,
     required this.createdAt,
     this.completedAt,
+    this.hostId,
+    this.winnerName,
   });
 
-  factory SessionSummary.fromJson(Map<String, dynamic> json) => SessionSummary(
-        id: json['id'] as String,
-        mode: json['mode'] as String,
-        status: json['status'] as String,
-        createdAt: DateTime.parse(json['created_at'] as String),
-        completedAt: json['completed_at'] != null
-            ? DateTime.parse(json['completed_at'] as String)
-            : null,
-      );
+  factory SessionSummary.fromJson(Map<String, dynamic> json) {
+    String? winner;
+    for (final r in (json['session_results'] as List? ?? const [])) {
+      final row = r as Map<String, dynamic>;
+      if (row['is_winner'] == true) {
+        winner = (row['suggested_places'] as Map<String, dynamic>?)?['name']
+            as String?;
+      }
+    }
+    return SessionSummary(
+      id: json['id'] as String,
+      mode: json['mode'] as String,
+      status: json['status'] as String,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      completedAt: json['completed_at'] != null
+          ? DateTime.parse(json['completed_at'] as String)
+          : null,
+      hostId: json['user_id'] as String?,
+      winnerName: winner,
+    );
+  }
 }
 
 /// A lightweight value object returned by [SessionService.createSession].
@@ -76,6 +97,9 @@ class SessionModel {
   final String status;
   final List<Place> places;
 
+  /// The host's filters, chosen when the session was created.
+  final SwipeFilters filters;
+
   const SessionModel({
     required this.id,
     this.groupId,
@@ -84,6 +108,7 @@ class SessionModel {
     required this.type,
     required this.status,
     this.places = const [],
+    this.filters = const SwipeFilters(),
   });
 
   factory SessionModel.fromJson(Map<String, dynamic> json) => SessionModel(
@@ -93,6 +118,7 @@ class SessionModel {
         mode: json['mode'] as String,
         type: json['type'] as String,
         status: json['status'] as String,
+        filters: SwipeFilters.fromJson(json['filters'] as Map<String, dynamic>?),
       );
 
   SessionModel copyWith({String? status, List<Place>? places}) => SessionModel(
@@ -103,6 +129,7 @@ class SessionModel {
         type: type,
         status: status ?? this.status,
         places: places ?? this.places,
+        filters: filters,
       );
 }
 
@@ -125,6 +152,19 @@ class PlaceResult {
   });
 }
 
+/// Where a crew is in a group session: who has swiped every place.
+class CrewProgress {
+  final List<String> memberIds;
+  final Set<String> finishedIds;
+
+  const CrewProgress({required this.memberIds, required this.finishedIds});
+
+  int get finished => memberIds.where(finishedIds.contains).length;
+  int get total => memberIds.length;
+  bool get allDone => total > 0 && finished >= total;
+  bool hasFinished(String userId) => finishedIds.contains(userId);
+}
+
 class SessionService {
   final SupabaseClient _db = Supabase.instance.client;
   final PlacesService _placesService;
@@ -139,6 +179,7 @@ class SessionService {
     String? groupId,
     required String mode,
     required String type,
+    SwipeFilters? filters,
   }) async {
     final userId = _db.auth.currentUser!.id;
     debugPrint('[SessionService] createSession: userId=$userId groupId=$groupId mode=$mode type=$type');
@@ -151,6 +192,7 @@ class SessionService {
             'mode': mode,
             'type': type,
             'status': 'setup',
+            if (filters != null) 'filters': filters.toJson(),
           })
           .select()
           .single();
@@ -373,7 +415,13 @@ class SessionService {
       final pct = total > 0 ? (yes / total * 100) : 0.0;
       return _IntermResult(place: place, yesVotes: yes, noVotes: no, pct: pct);
     }).toList()
-      ..sort((a, b) => b.pct.compareTo(a.pct));
+      ..sort((a, b) {
+        final byShare = b.pct.compareTo(a.pct);
+        if (byShare != 0) return byShare;
+        final byYes = b.yesVotes.compareTo(a.yesVotes);
+        if (byYes != 0) return byYes;
+        return a.place.displayOrder.compareTo(b.place.displayOrder);
+      });
 
     // Persist
     final resultRows = results.asMap().entries.map((e) {
@@ -390,7 +438,9 @@ class SessionService {
       };
     }).toList();
 
-    await _db.from('session_results').upsert(resultRows);
+    await _db
+        .from('session_results')
+        .upsert(resultRows, onConflict: 'session_id,place_id');
 
     // Update session status
     await _db
@@ -414,43 +464,38 @@ class SessionService {
 
   // ── Group swipe progress ───────────────────────────────────────────────────
 
-  /// Number of group members who have finished swiping all places.
-  Future<({int membersFinished, int totalMembers})> getGroupProgress(
-      String sessionId, String groupId) async {
-    final members = await _db
-        .from('group_members')
-        .select('user_id')
-        .eq('group_id', groupId);
+  /// Who in the crew has swiped every place.
+  Future<CrewProgress> getCrewProgress(String sessionId, String groupId) async {
+    final (members, places, swipes) = await (
+      _db.from('group_members').select('user_id').eq('group_id', groupId),
+      _db.from('suggested_places').select('id').eq('session_id', sessionId),
+      _db.from('swipes').select('user_id').eq('session_id', sessionId),
+    ).wait;
 
-    final totalPlaces = await _db
-        .from('suggested_places')
-        .select('id')
-        .eq('session_id', sessionId);
-    final placeCount = (totalPlaces as List).length;
-
-    int finished = 0;
-    for (final m in members as List) {
-      final uid = m['user_id'] as String;
-      final swipes = await _db
-          .from('swipes')
-          .select('id')
-          .eq('session_id', sessionId)
-          .eq('user_id', uid);
-      if ((swipes as List).length >= placeCount) finished++;
+    final placeCount = (places as List).length;
+    final counts = <String, int>{};
+    for (final r in swipes as List) {
+      final uid = r['user_id'] as String;
+      counts[uid] = (counts[uid] ?? 0) + 1;
     }
 
-    return (membersFinished: finished, totalMembers: (members as List).length);
+    return CrewProgress(
+      memberIds: [for (final m in members as List) m['user_id'] as String],
+      finishedIds: {
+        if (placeCount > 0)
+          for (final e in counts.entries)
+            if (e.value >= placeCount) e.key,
+      },
+    );
   }
 
-  /// Realtime stream of group swipe progress.
-  /// Emits whenever any swipe row is inserted/updated for this session.
-  Stream<({int membersFinished, int totalMembers})> watchGroupProgress(
-      String sessionId, String groupId) {
+  /// [getCrewProgress] now and after every swipe in the session.
+  Stream<CrewProgress> watchCrewProgress(String sessionId, String groupId) {
     return _db
         .from('swipes')
         .stream(primaryKey: ['id'])
         .eq('session_id', sessionId)
-        .asyncMap((_) => getGroupProgress(sessionId, groupId));
+        .asyncMap((_) => getCrewProgress(sessionId, groupId));
   }
 
   // ── Group lobby helpers ────────────────────────────────────────────────────
@@ -512,16 +557,14 @@ class SessionService {
     return (rows as List).isNotEmpty;
   }
 
-  /// Watches the status field of a session and emits on every change.
+  /// Watches the status field of a session and emits when it changes.
   Stream<String> watchSessionStatus(String sessionId) {
     return _db
         .from('sessions')
         .stream(primaryKey: ['id'])
         .eq('id', sessionId)
-        .map((rows) {
-          if ((rows as List).isEmpty) return 'setup';
-          return rows.first['status'] as String;
-        });
+        .map((rows) => rows.isEmpty ? 'setup' : rows.first['status'] as String)
+        .distinct();
   }
 
   /// Computes the centroid of all submitted member locations, fetches places,
@@ -574,6 +617,7 @@ class SessionService {
       type: 'group',
       status: 'swiping',
       places: savedPlaces,
+      filters: filters,
     );
   }
 
@@ -585,13 +629,13 @@ class SessionService {
     return session.copyWith(places: places);
   }
 
-  /// Active (setup/swiping/revealed) sessions for a group, newest first.
+  /// The session still being decided (setup or swiping), if any.
   Future<List<SessionSummary>> getActiveSessions(String groupId) async {
     final rows = await _db
         .from('sessions')
-        .select('id, mode, status, created_at, completed_at')
+        .select('id, mode, status, created_at, completed_at, user_id')
         .eq('group_id', groupId)
-        .inFilter('status', ['setup', 'swiping', 'revealed'])
+        .inFilter('status', ['setup', 'swiping'])
         .order('created_at', ascending: false)
         .limit(1);
     return (rows as List)
@@ -599,18 +643,64 @@ class SessionService {
         .toList();
   }
 
-  /// Past (completed) sessions for a group, newest first.
+  /// Decided sessions for a group, newest first, with the winner's name.
   Future<List<SessionSummary>> getPastSessions(String groupId) async {
     final rows = await _db
         .from('sessions')
-        .select('id, mode, status, created_at, completed_at')
+        .select(
+          'id, mode, status, created_at, completed_at, user_id, '
+          'session_results(is_winner, suggested_places(name))',
+        )
         .eq('group_id', groupId)
-        .eq('status', 'completed')
-        .order('created_at', ascending: false)
+        .inFilter('status', ['revealed', 'completed'])
+        .eq('session_results.is_winner', true)
+        .order('completed_at', ascending: false, nullsFirst: false)
         .limit(10);
     return (rows as List)
         .map((r) => SessionSummary.fromJson(r as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Saved results, best first, read-only. Use this to show results again;
+  /// [computeResults] re-saves them and moves the finish time.
+  Future<List<PlaceResult>> getResults(String sessionId) async {
+    final rows = await _db
+        .from('session_results')
+        .select(
+          'yes_votes, no_votes, vote_percentage, rank, is_winner, '
+          'suggested_places(*)',
+        )
+        .eq('session_id', sessionId)
+        .order('rank');
+
+    return [
+      for (final r in rows as List)
+        if (r['suggested_places'] != null)
+          PlaceResult(
+            place: Place.fromSupabaseJson(
+                r['suggested_places'] as Map<String, dynamic>),
+            yesVotes: r['yes_votes'] as int? ?? 0,
+            noVotes: r['no_votes'] as int? ?? 0,
+            votePercent: (r['vote_percentage'] as num?)?.toDouble() ?? 0,
+            rank: r['rank'] as int? ?? 0,
+            isWinner: r['is_winner'] as bool? ?? false,
+          ),
+    ];
+  }
+
+  /// This user's swipes in a session, by place id to 'yes' or 'no'. Lets a
+  /// returning swiper pick up where they left off.
+  Future<Map<String, String>> getMySwipes(String sessionId) async {
+    final userId = _db.auth.currentUser!.id;
+    final rows = await _db
+        .from('swipes')
+        .select('place_id, direction')
+        .eq('session_id', sessionId)
+        .eq('user_id', userId);
+    return {
+      for (final r in rows as List)
+        r['place_id'] as String: r['direction'] as String,
+    };
   }
 
   /// Check if the current user has finished swiping all places in [sessionId].

@@ -1,10 +1,14 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../config/legal_links.dart';
+import '../l10n/l10n.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
+import '../utils/links.dart';
 import '../widgets/hangout_button.dart';
 import '../widgets/hangout_logo.dart';
 import '../widgets/hangout_motion.dart';
@@ -25,9 +29,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _googleLoading = false;
   bool _otpLoading = false;
 
+  late final _termsTap = TapGestureRecognizer()
+    ..onTap = () => openLink(context, Uri.parse(LegalLinks.termsUrl!));
+  late final _privacyTap = TapGestureRecognizer()
+    ..onTap = () => openLink(context, Uri.parse(LegalLinks.privacyUrl!));
+
   @override
   void dispose() {
     _phoneController.dispose();
+    _termsTap.dispose();
+    _privacyTap.dispose();
     super.dispose();
   }
 
@@ -38,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _googleLoading = false);
     if (result.cancelled) return;
     if (!result.success) {
-      _showError(result.errorMessage ?? "That didn't work. Try again?");
+      _showError(context.l10n.loginGoogleFailed);
     }
   }
 
@@ -51,7 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() => _otpLoading = false);
     if (!result.success) {
-      _showError(result.errorMessage ?? "We couldn't send that code.");
+      _showError(context.l10n.loginSendFailed);
       return;
     }
     Navigator.of(context).push(
@@ -77,12 +88,9 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             const HangoutWordmark(height: 34),
             const SizedBox(height: AppSpacing.x10),
-            Text('We should hang out sometime.', style: AppTextStyles.h1),
+            Text(context.l10n.loginHeadline, style: AppTextStyles.h1),
             const SizedBox(height: AppSpacing.x3),
-            Text(
-              'Swipe on places with your crew. Everyone votes, one spot wins.',
-              style: AppTextStyles.body,
-            ),
+            Text(context.l10n.loginBody, style: AppTextStyles.body),
             const SizedBox(height: AppSpacing.x10),
             _buildGoogleButton(),
             const SizedBox(height: AppSpacing.x5),
@@ -91,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
             _buildPhoneForm(),
             const SizedBox(height: AppSpacing.x4),
             HangoutButton(
-              label: 'Send code',
+              label: context.l10n.loginSendCode,
               size: HangoutButtonSize.lg,
               block: true,
               loading: _otpLoading,
@@ -127,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const _GoogleIcon(),
                   const SizedBox(width: AppSpacing.x3),
-                  Text('Continue with Google',
+                  Text(context.l10n.loginGoogle,
                       style: AppTextStyles.button
                           .copyWith(color: AppColors.textStrong)),
                 ],
@@ -142,7 +150,7 @@ class _LoginScreenState extends State<LoginScreen> {
         const Expanded(child: Divider()),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.x3),
-          child: Text('or use your phone', style: AppTextStyles.caption),
+          child: Text(context.l10n.loginOrPhone, style: AppTextStyles.caption),
         ),
         const Expanded(child: Divider()),
       ],
@@ -160,7 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
         style: AppTextStyles.body.copyWith(color: AppColors.textStrong),
         decoration: InputDecoration(
           counterText: '',
-          hintText: 'Mobile number',
+          hintText: context.l10n.loginPhoneHint,
           prefixIcon: Padding(
             padding: const EdgeInsets.fromLTRB(16, 15, 10, 15),
             child: Text('+91',
@@ -169,18 +177,46 @@ class _LoginScreenState extends State<LoginScreen> {
           prefixIconConstraints: const BoxConstraints(minWidth: 0),
         ),
         validator: (v) {
-          if (v == null || v.trim().isEmpty) return 'Enter your mobile number';
-          if (v.trim().length != 10) return "That's not a 10-digit number";
+          if (v == null || v.trim().isEmpty) return context.l10n.loginPhoneEmpty;
+          if (v.trim().length != 10) return context.l10n.loginPhoneInvalid;
           return null;
         },
       ),
     );
   }
 
+  /// The legal line, with working links. Hidden until the links exist: an
+  /// agreement to documents nobody can read isn't one.
   Widget _buildFooterNote() {
-    return Text(
-      'By continuing you agree to our Terms of Service and Privacy Policy.',
-      style: AppTextStyles.caption,
+    if (LegalLinks.termsUrl == null || LegalLinks.privacyUrl == null) {
+      return const SizedBox.shrink();
+    }
+    final l10n = context.l10n;
+    const mark = '\u0000';
+    final parts = l10n.loginLegal(mark, mark).split(mark);
+    final link = AppTextStyles.captionStrong.copyWith(
+      color: AppColors.textBody,
+      decoration: TextDecoration.underline,
+    );
+    return Text.rich(
+      TextSpan(
+        style: AppTextStyles.caption,
+        children: [
+          TextSpan(text: parts[0]),
+          TextSpan(
+            text: l10n.loginTerms,
+            style: link,
+            recognizer: _termsTap,
+          ),
+          TextSpan(text: parts[1]),
+          TextSpan(
+            text: l10n.loginPrivacy,
+            style: link,
+            recognizer: _privacyTap,
+          ),
+          TextSpan(text: parts[2]),
+        ],
+      ),
     );
   }
 }

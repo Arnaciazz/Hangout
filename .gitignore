@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Release signing: the upload key and its passwords never go in git.
+/android/key.properties
+*.jks
+*.keystore

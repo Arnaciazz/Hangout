@@ -68,7 +68,7 @@ class HangoutBadge extends StatelessWidget {
   }
 }
 
-enum TagTone { soft, fresh, honey, outline }
+enum TagTone { soft, fresh, honey, outline, neutral }
 
 /// Category / cuisine tag — softer than a badge, used inline in cards.
 class HangoutTag extends StatelessWidget {
@@ -90,6 +90,7 @@ class HangoutTag extends StatelessWidget {
       TagTone.fresh => (AppColors.accentFreshTint, AppColors.avocado700, AppColors.avocado100),
       TagTone.honey => (AppColors.honey100, AppColors.honey600, Colors.transparent),
       TagTone.outline => (Colors.transparent, AppColors.textBody, AppColors.borderStrong),
+      TagTone.neutral => (AppColors.surfaceSunken, AppColors.textBody, Colors.transparent),
     };
 
     return Container(

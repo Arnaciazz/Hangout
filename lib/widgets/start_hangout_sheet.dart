@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/l10n.dart';
 import '../screens/mode_lobby_screen.dart';
 import '../theme/app_colors.dart';
 import 'hangout_list.dart';
@@ -28,20 +29,20 @@ Future<void> showStartHangoutSheet(
     context: context,
     backgroundColor: Colors.transparent,
     builder: (ctx) => HangoutSheet(
-      title: 'What are we deciding?',
+      title: ctx.l10n.startSheetTitle,
       child: HangoutListGroup(
         children: [
           HangoutListRow(
             leading: const Icon(Icons.restaurant_rounded, color: AppColors.brand),
-            title: 'Somewhere to eat',
-            subtitle: 'Restaurants, cafés, bars',
+            title: ctx.l10n.startSheetFood,
+            subtitle: ctx.l10n.startSheetFoodHint,
             showChevron: true,
             onTap: () => pick(ctx, 'hunger'),
           ),
           HangoutListRow(
             leading: const Icon(Icons.explore_rounded, color: AppColors.brand),
-            title: 'Somewhere to go',
-            subtitle: 'Parks, museums, days out',
+            title: ctx.l10n.startSheetPlaces,
+            subtitle: ctx.l10n.startSheetPlacesHint,
             showChevron: true,
             onTap: () => pick(ctx, 'travel'),
           ),

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../services/profile_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
@@ -82,7 +83,7 @@ class _AvatarSetupScreenState extends State<AvatarSetupScreen> {
     final nickname = _nicknameCtrl.text.trim();
     if (nickname.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pick a nickname first')),
+        SnackBar(content: Text(context.l10n.avatarNeedNickname)),
       );
       return;
     }
@@ -95,12 +96,12 @@ class _AvatarSetupScreenState extends State<AvatarSetupScreen> {
       if (!mounted) return;
       setState(() => _saving = false);
       widget.onSetupComplete?.call();
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Couldn't save that: $e"),
+          content: Text(context.l10n.avatarSaveFailed),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -117,7 +118,8 @@ class _AvatarSetupScreenState extends State<AvatarSetupScreen> {
       appBar: editing
           ? AppBar(
               leading: const HangoutBackButton(),
-              title: Text('Edit profile', style: AppTextStyles.title),
+              title: Text(context.l10n.avatarEditTitle,
+                  style: AppTextStyles.title),
             )
           : null,
       body: SafeArea(
@@ -131,12 +133,9 @@ class _AvatarSetupScreenState extends State<AvatarSetupScreen> {
           ),
           children: [
             if (!editing) ...[
-              Text('Make it yours', style: AppTextStyles.h1),
+              Text(context.l10n.avatarTitle, style: AppTextStyles.h1),
               const SizedBox(height: 4),
-              Text(
-                'This is how your crews will see you. You can change it later.',
-                style: AppTextStyles.small,
-              ),
+              Text(context.l10n.avatarBody, style: AppTextStyles.small),
               const SizedBox(height: AppSpacing.x8),
             ],
             Row(
@@ -201,14 +200,14 @@ class _AvatarSetupScreenState extends State<AvatarSetupScreen> {
               textInputAction: TextInputAction.done,
               style: AppTextStyles.bodyStrong,
               decoration: InputDecoration(
-                labelText: 'Nickname',
+                labelText: context.l10n.avatarNicknameLabel,
                 prefixText: '@',
                 prefixStyle:
                     AppTextStyles.bodyStrong.copyWith(color: AppColors.brand),
-                helperText: 'Shuffle for a new one, or type your own.',
+                helperText: context.l10n.avatarNicknameHelper,
                 suffixIcon: HangoutIconButton(
                   icon: Icons.shuffle_rounded,
-                  tooltip: 'New nickname',
+                  tooltip: context.l10n.avatarNewNickname,
                   onPressed: _regenerateNickname,
                 ),
               ),
@@ -223,7 +222,7 @@ class _AvatarSetupScreenState extends State<AvatarSetupScreen> {
       ),
       bottomNavigationBar: StickyActionBar(
         child: HangoutButton(
-          label: editing ? 'Save' : "Let's go",
+          label: editing ? context.l10n.actionSave : context.l10n.avatarLetsGo,
           size: HangoutButtonSize.lg,
           block: true,
           loading: _saving,

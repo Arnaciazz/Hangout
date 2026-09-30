@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
@@ -104,7 +105,7 @@ class _OtpScreenState extends State<OtpScreen>
     if (!result.success) {
       _shakeCtrl.forward(from: 0);
       HapticFeedback.heavyImpact();
-      _showError(result.errorMessage ?? "That code didn't match.");
+      _showError(context.l10n.otpWrong);
       for (final c in _controllers) {
         c.clear();
       }
@@ -123,15 +124,15 @@ class _OtpScreenState extends State<OtpScreen>
     setState(() => _resending = false);
 
     if (!result.success) {
-      _showError(result.errorMessage ?? "We couldn't resend that code.");
+      _showError(context.l10n.otpResendFailed);
       return;
     }
 
     _startCooldown();
     HapticFeedback.lightImpact();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Code sent again'),
+      SnackBar(
+        content: Text(context.l10n.otpResent),
         backgroundColor: AppColors.accentFresh,
       ),
     );
@@ -164,26 +165,31 @@ class _OtpScreenState extends State<OtpScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: AppSpacing.x4),
-              Text('Enter the code', style: AppTextStyles.h1),
+              Text(context.l10n.otpTitle, style: AppTextStyles.h1),
               const SizedBox(height: AppSpacing.x2),
-              RichText(
-                  text: TextSpan(
+              Builder(builder: (context) {
+                // The phone number is bold inside the translated sentence.
+                final parts = context.l10n.otpSentTo('\u0000').split('\u0000');
+                return Text.rich(
+                  TextSpan(
                     style: AppTextStyles.small,
                     children: [
-                      const TextSpan(text: 'We texted a 6-digit code to '),
+                      TextSpan(text: parts.first),
                       TextSpan(
                         text: _displayPhone,
                         style: AppTextStyles.smallStrong
                             .copyWith(color: AppColors.textStrong),
                       ),
+                      if (parts.length > 1) TextSpan(text: parts.last),
                     ],
                   ),
-                ),
+                );
+              }),
               const SizedBox(height: AppSpacing.x10),
               _buildOtpBoxes(),
               const SizedBox(height: AppSpacing.x8),
               HangoutButton(
-                  label: 'Verify & continue',
+                  label: context.l10n.otpVerify,
                   size: HangoutButtonSize.lg,
                   block: true,
                   loading: _verifying,
@@ -283,11 +289,11 @@ class _OtpScreenState extends State<OtpScreen>
                   text: TextSpan(
                     style: AppTextStyles.small,
                     children: [
-                      const TextSpan(text: "Didn't get it? "),
+                      TextSpan(text: '${context.l10n.otpDidntGetIt} '),
                       TextSpan(
                         text: canResend
-                            ? 'Send it again'
-                            : 'Resend in ${_resendCooldown}s',
+                            ? context.l10n.otpResend
+                            : context.l10n.otpResendIn(_resendCooldown),
                         style: AppTextStyles.smallStrong.copyWith(
                           color: canResend ? AppColors.brand : AppColors.textFaint,
                         ),

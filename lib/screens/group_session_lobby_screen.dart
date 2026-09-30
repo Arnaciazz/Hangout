@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../l10n/l10n.dart';
 import '../models/group.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
@@ -11,18 +12,23 @@ import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/hangout_avatar.dart';
 import '../widgets/hangout_button.dart';
+import '../widgets/hangout_chips.dart';
 import '../widgets/hangout_list.dart';
 import 'location_picker_screen.dart';
 import 'place_swipe_screen.dart';
 import 'session_filters_screen.dart';
 
 /// The lobby for a group session in `setup`. Everyone drops a pin here; the
-/// host can start swiping once the whole crew is in.
+/// host — whoever started the session — starts swiping when enough pins are
+/// in. Nobody who's missing holds the crew up.
 class GroupSessionLobbyScreen extends StatefulWidget {
   final String sessionId;
   final Group group;
   final String mode;
   final SwipeFilters filters;
+
+  /// The session's creator. Only they can start it (the database agrees).
+  final String hostId;
 
   const GroupSessionLobbyScreen({
     super.key,
@@ -30,6 +36,7 @@ class GroupSessionLobbyScreen extends StatefulWidget {
     required this.group,
     required this.mode,
     required this.filters,
+    required this.hostId,
   });
 
   @override
@@ -50,7 +57,7 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
 
   bool get _isHunger => widget.mode == 'hunger';
   String get _myId => Supabase.instance.client.auth.currentUser!.id;
-  bool get _amOwner => widget.group.isOwner(_myId);
+  bool get _amHost => widget.hostId == _myId;
 
   Set<String> get _submittedIds => _locations.map((l) => l.addedBy).toSet();
 
@@ -82,8 +89,11 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
           final session = await _service.getSessionWithPlaces(widget.sessionId);
           if (!mounted) return;
           Navigator.of(context).pushReplacement(MaterialPageRoute(
-            builder: (_) =>
-                PlaceSwipeScreen(session: session, group: widget.group),
+            builder: (_) => PlaceSwipeScreen(
+              session: session,
+              group: widget.group,
+              resume: true,
+            ),
           ));
         } catch (_) {
           if (mounted) setState(() => _navigating = false);
@@ -110,13 +120,13 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
         sessionId: widget.sessionId,
         lat: result.latitude,
         lng: result.longitude,
-        locationName: 'My location',
+        locationName: context.l10n.lobbyMyPin,
         radiusKm: widget.filters.radiusKm,
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text("Couldn't save that pin."),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.l10n.lobbyPinFailed),
         backgroundColor: AppColors.danger,
       ));
     }
@@ -124,6 +134,33 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
 
   Future<void> _startSession() async {
     if (_starting) return;
+    final l10n = context.l10n;
+    final missing = widget.group.members.length - _submittedIds.length;
+    if (missing > 0) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l10n.lobbyStartEarlyTitle),
+          content: Text(l10n.lobbyStartEarlyBody(missing),
+              style: AppTextStyles.small),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l10n.lobbyStartEarlyWait,
+                  style: AppTextStyles.smallStrong
+                      .copyWith(color: AppColors.textMuted)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l10n.lobbyStartEarlyConfirm,
+                  style: AppTextStyles.smallStrong
+                      .copyWith(color: AppColors.brand)),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
     setState(() => _starting = true);
     try {
       await _service.startGroupSession(
@@ -133,11 +170,15 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
         filters: widget.filters,
       );
       // The status stream navigates everyone, including the host.
-    } on Exception catch (e) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _starting = false);
+      final l10n = context.l10n;
+      final message = e.toString().contains('No ')
+          ? (_isHunger ? l10n.lobbyNothingFoodNearby : l10n.lobbyNothingNearby)
+          : l10n.errorGeneric;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(e.toString().replaceFirst('Exception: ', '')),
+        content: Text(message),
         backgroundColor: AppColors.danger,
       ));
     }
@@ -147,6 +188,7 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final submitted = _submittedIds.length;
     final total = widget.group.members.length;
     final ready = _allLocationsAdded;
@@ -159,12 +201,14 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
             AppSpacing.gutter, AppSpacing.x2, AppSpacing.gutter, AppSpacing.x8),
         children: [
           Text(
-            ready ? 'Everyone’s in' : 'Drop your pins',
+            ready ? l10n.lobbyEveryoneIn : l10n.lobbyDropPins,
             style: AppTextStyles.h1,
           ),
           const SizedBox(height: 4),
           Text(
-            '${widget.group.name} · ${_isHunger ? 'somewhere to eat' : 'somewhere to go'}',
+            _isHunger
+                ? l10n.lobbySubtitleFood(widget.group.name)
+                : l10n.lobbySubtitlePlaces(widget.group.name),
             style: AppTextStyles.small,
           ),
           const SizedBox(height: AppSpacing.x6),
@@ -190,15 +234,12 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
                 ),
               ),
               const SizedBox(width: AppSpacing.x3),
-              Text('$submitted of $total', style: AppTextStyles.smallStrong),
+              Text(l10n.countOf(submitted, total),
+                  style: AppTextStyles.smallStrong),
             ],
           ),
           const SizedBox(height: AppSpacing.x3),
-          Text(
-            'We search around the middle of everyone’s pins, so nobody '
-            'has to cross town.',
-            style: AppTextStyles.small,
-          ),
+          Text(l10n.lobbyMidpoint, style: AppTextStyles.small),
           const SizedBox(height: AppSpacing.x8),
           HangoutListGroup(
             children: [
@@ -212,6 +253,7 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
   }
 
   Widget _memberRow(GroupMember m) {
+    final l10n = context.l10n;
     final hasAdded = _submittedIds.contains(m.userId);
     final isMe = m.userId == _myId;
 
@@ -221,28 +263,38 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
         imageUrl: m.avatarUrl,
         size: 40,
       ),
-      title: isMe ? '${m.displayName} (you)' : m.displayName,
-      subtitle: hasAdded ? 'Pin dropped' : 'Hasn’t dropped a pin yet',
-      trailing: AnimatedSwitcher(
-        duration: AppMotion.base,
-        transitionBuilder: (child, anim) =>
-            ScaleTransition(scale: anim, child: child),
-        child: hasAdded
-            ? const Icon(Icons.check_circle_rounded,
-                key: ValueKey(true), color: AppColors.accentFresh)
-            : const Icon(Icons.radio_button_unchecked_rounded,
-                key: ValueKey(false), color: AppColors.sand300),
+      title: isMe ? l10n.nameYou(m.displayName) : m.displayName,
+      subtitle: hasAdded ? l10n.lobbyPinDropped : l10n.lobbyNoPinYet,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (m.userId == widget.hostId) ...[
+            HangoutBadge(label: l10n.badgeHost, tone: BadgeTone.warm),
+            const SizedBox(width: AppSpacing.x2),
+          ],
+          AnimatedSwitcher(
+            duration: AppMotion.base,
+            transitionBuilder: (child, anim) =>
+                ScaleTransition(scale: anim, child: child),
+            child: hasAdded
+                ? const Icon(Icons.check_circle_rounded,
+                    key: ValueKey(true), color: AppColors.accentFresh)
+                : const Icon(Icons.radio_button_unchecked_rounded,
+                    key: ValueKey(false), color: AppColors.sand300),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildBottom() {
+    final l10n = context.l10n;
     final missing = widget.group.members.length - _submittedIds.length;
 
     // Exactly one primary at a time: drop your pin first; once it's in, the
     // host's "Start swiping" takes over.
     final pinButton = HangoutButton(
-      label: _myLocationAdded ? 'Move my pin' : 'Drop my pin',
+      label: _myLocationAdded ? l10n.lobbyMovePin : l10n.lobbyDropPin,
       size: HangoutButtonSize.lg,
       block: true,
       variant: _myLocationAdded
@@ -258,27 +310,27 @@ class _GroupSessionLobbyScreenState extends State<GroupSessionLobbyScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_amOwner && _myLocationAdded) ...[
+          if (_amHost && _myLocationAdded) ...[
             HangoutButton(
-              label: _allLocationsAdded
-                  ? (_starting ? 'Finding places…' : 'Start swiping')
-                  : 'Waiting on $missing more',
+              label: _starting
+                  ? l10n.lobbyFindingPlaces
+                  : (_allLocationsAdded
+                      ? l10n.lobbyStartSwiping
+                      : l10n.lobbyStartWithPins(_submittedIds.length)),
               size: HangoutButtonSize.lg,
               block: true,
               loading: _starting,
-              onPressed: (_allLocationsAdded && !_starting && !_navigating)
-                  ? _startSession
-                  : null,
+              onPressed: (!_starting && !_navigating) ? _startSession : null,
             ),
             const SizedBox(height: AppSpacing.x2),
           ],
           pinButton,
-          if (!_amOwner && _myLocationAdded) ...[
+          if (!_amHost && _myLocationAdded) ...[
             const SizedBox(height: AppSpacing.x2),
             Text(
               _allLocationsAdded
-                  ? 'Waiting for the host to start'
-                  : 'Waiting on $missing more',
+                  ? l10n.lobbyWaitingForHost
+                  : l10n.lobbyWaitingOn(missing),
               style: AppTextStyles.small,
             ),
           ],

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/l10n.dart';
 import '../models/group.dart';
 import '../services/group_service.dart';
 import '../theme/app_colors.dart';
@@ -44,6 +45,7 @@ class _ModeLobbyScreenState extends State<ModeLobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(leading: const HangoutBackButton()),
@@ -51,15 +53,15 @@ class _ModeLobbyScreenState extends State<ModeLobbyScreen> {
         padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter, AppSpacing.x2, AppSpacing.gutter, AppSpacing.x10),
         children: [
-          Text(_isHunger ? 'Where to eat' : 'Where to go',
+          Text(_isHunger ? l10n.modeTitleFood : l10n.modeTitlePlaces,
               style: AppTextStyles.h1),
           const SizedBox(height: 4),
-          Text('Pick who’s deciding.', style: AppTextStyles.body),
+          Text(l10n.modeSubtitle, style: AppTextStyles.body),
           const SizedBox(height: AppSpacing.x8),
           SectionHeader(
-            title: 'With a crew',
+            title: l10n.modeWithCrew,
             trailing: HangoutButton(
-              label: 'New',
+              label: l10n.crewsNew,
               iconLeft: Icons.add_rounded,
               size: HangoutButtonSize.sm,
               variant: HangoutButtonVariant.ghost,
@@ -86,10 +88,9 @@ class _ModeLobbyScreenState extends State<ModeLobbyScreen> {
                     HangoutListRow(
                       leading: HangoutAvatar(name: g.name, size: 40),
                       title: g.name,
-                      subtitle:
-                          '${g.memberCount} ${g.memberCount == 1 ? 'person' : 'people'}',
+                      subtitle: l10n.memberCount(g.memberCount),
                       trailing: HangoutButton(
-                        label: 'Start',
+                        label: l10n.modeStart,
                         size: HangoutButtonSize.sm,
                         variant: HangoutButtonVariant.tonal,
                         onPressed: () => _start(g),
@@ -103,7 +104,7 @@ class _ModeLobbyScreenState extends State<ModeLobbyScreen> {
             },
           ),
           const SizedBox(height: AppSpacing.x8),
-          const SectionHeader(title: 'On your own'),
+          SectionHeader(title: l10n.modeOnYourOwn),
           const SizedBox(height: AppSpacing.x2),
           HangoutListGroup(
             children: [
@@ -112,8 +113,8 @@ class _ModeLobbyScreenState extends State<ModeLobbyScreen> {
                   width: 40,
                   child: Icon(Icons.person_rounded, color: AppColors.textMuted),
                 ),
-                title: 'Just me',
-                subtitle: 'Swipe solo and decide fast',
+                title: l10n.setupJustMe,
+                subtitle: l10n.modeJustMeHint,
                 showChevron: true,
                 onTap: () => _start(null),
               ),
@@ -125,6 +126,7 @@ class _ModeLobbyScreenState extends State<ModeLobbyScreen> {
   }
 
   Widget _noCrews() {
+    final l10n = context.l10n;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.x5),
       decoration: BoxDecoration(
@@ -135,17 +137,14 @@ class _ModeLobbyScreenState extends State<ModeLobbyScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _isHunger ? 'No food crews yet' : 'No explore crews yet',
+            _isHunger ? l10n.modeNoCrewsFood : l10n.modeNoCrewsPlaces,
             style: AppTextStyles.title,
           ),
           const SizedBox(height: 4),
-          Text(
-            'Start one, share the code, and everyone swipes on the same places.',
-            style: AppTextStyles.small,
-          ),
+          Text(l10n.modeNoCrewsBody, style: AppTextStyles.small),
           const SizedBox(height: AppSpacing.x3),
           HangoutButton(
-            label: 'Start a crew',
+            label: l10n.crewsStart,
             size: HangoutButtonSize.sm,
             variant: HangoutButtonVariant.tonal,
             onPressed: _newCrew,

@@ -319,7 +319,7 @@ class HangoutBackButton extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4),
       child: HangoutIconButton(
         icon: icon,
-        tooltip: 'Back',
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         onPressed: onPressed ?? () => Navigator.of(context).maybePop(),
       ),
     );

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'notification_service.dart';
+
 class AuthService extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
 
@@ -79,7 +81,13 @@ class AuthService extends ChangeNotifier {
   // ─── Sign out ─────────────────────────────────────────────────────────────
 
   Future<void> signOut() async {
-    await GoogleSignIn().signOut();
+    // Unlink this device first, while still signed in to clear the token.
+    await NotificationService.instance.stop();
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {
+      // Phone sign-ins have no Google session to end.
+    }
     await _supabase.auth.signOut();
   }
 }

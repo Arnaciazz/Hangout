@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_tokens.dart';
@@ -14,7 +15,7 @@ import 'hangout_motion.dart';
 class BottomNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
-  final List<NavItemSpec> items;
+  final List<NavItemSpec>? items;
 
   /// Optional raised centre action, inserted at the midpoint of the tab row.
   final VoidCallback? onCenterAction;
@@ -24,20 +25,23 @@ class BottomNavBar extends StatelessWidget {
     super.key,
     required this.currentIndex,
     required this.onTap,
-    this.items = defaultItems,
+    this.items,
     this.onCenterAction,
     this.centerIcon = Icons.add_rounded,
   });
 
-  static const defaultItems = <NavItemSpec>[
-    NavItemSpec(Icons.home_outlined, Icons.home_rounded, 'Home'),
-    NavItemSpec(Icons.group_outlined, Icons.group_rounded, 'Crews'),
-    NavItemSpec(Icons.history_rounded, Icons.history_rounded, 'Memories'),
-    NavItemSpec(Icons.person_outline_rounded, Icons.person_rounded, 'You'),
-  ];
+  static List<NavItemSpec> defaultItems(AppLocalizations l10n) => [
+        NavItemSpec(Icons.home_outlined, Icons.home_rounded, l10n.navHome),
+        NavItemSpec(Icons.group_outlined, Icons.group_rounded, l10n.navCrews),
+        NavItemSpec(
+            Icons.history_rounded, Icons.history_rounded, l10n.navMemories),
+        NavItemSpec(
+            Icons.person_outline_rounded, Icons.person_rounded, l10n.navYou),
+      ];
 
   @override
   Widget build(BuildContext context) {
+    final items = this.items ?? defaultItems(context.l10n);
     final hasCenter = onCenterAction != null;
     final bottomInset = MediaQuery.of(context).padding.bottom;
     final centerAfter = (items.length / 2).floor() - 1;
@@ -170,7 +174,7 @@ class _CenterAction extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Semantics(
         button: true,
-        label: 'Start a hangout',
+        label: context.l10n.navStartHangout,
         child: Pressable(
           scale: 0.9,
           onTap: onTap,

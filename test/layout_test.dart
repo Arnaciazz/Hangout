@@ -1,17 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shuffle/models/place.dart';
-import 'package:shuffle/screens/memory_screen.dart';
-import 'package:shuffle/screens/profile_screen.dart';
-import 'package:shuffle/screens/session_filters_screen.dart';
-import 'package:shuffle/services/history_service.dart';
-import 'package:shuffle/theme/app_theme.dart';
-import 'package:shuffle/widgets/bottom_nav_bar.dart';
-import 'package:shuffle/widgets/hangout_avatar.dart';
-import 'package:shuffle/widgets/hangout_button.dart';
-import 'package:shuffle/widgets/hangout_card.dart';
-import 'package:shuffle/widgets/hangout_chips.dart';
-import 'package:shuffle/widgets/hangout_list.dart';
+import 'package:hangout/l10n/l10n.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:hangout/dev/fixtures.dart';
+import 'package:hangout/models/place.dart';
+import 'package:hangout/screens/bill_screen.dart';
+import 'package:hangout/screens/memory_screen.dart';
+import 'package:hangout/screens/place_detail_screen.dart';
+import 'package:hangout/screens/profile_screen.dart';
+import 'package:hangout/screens/results_screen.dart';
+import 'package:hangout/screens/session_filters_screen.dart';
+import 'package:hangout/services/history_service.dart';
+import 'package:hangout/services/session_service.dart';
+import 'package:hangout/utils/dates.dart';
+import 'package:hangout/theme/app_theme.dart';
+import 'package:hangout/widgets/bottom_nav_bar.dart';
+import 'package:hangout/widgets/hangout_avatar.dart';
+import 'package:hangout/widgets/hangout_button.dart';
+import 'package:hangout/widgets/hangout_card.dart';
+import 'package:hangout/widgets/hangout_chips.dart';
+import 'package:hangout/widgets/hangout_list.dart';
 
 // Layout regression tests.
 //
@@ -31,7 +39,12 @@ void _setSurface(WidgetTester tester, Size size, {double textScale = 1.0}) {
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
-Widget _app(Widget home) => MaterialApp(theme: AppTheme.lightTheme, home: home);
+Widget _app(Widget home) => MaterialApp(
+      theme: AppTheme.lightTheme,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: home,
+    );
 
 Future<void> _expectClean(WidgetTester tester) async {
   await tester.pumpAndSettle();
@@ -280,6 +293,148 @@ void main() {
       await _expectClean(tester);
     });
 
+    testWidgets('memories offer "Didn’t go" on every hangout', (tester) async {
+      _setSurface(tester, _small, textScale: 1.3);
+      HangoutMemory? dismissed;
+      await tester.pumpWidget(_app(Scaffold(
+        body: MemoriesView(
+          memories: [
+            _memory('Example Biryani House', crew: 'Friday dinner lot', days: 1),
+            _memory('Example Café', crew: 'Office crew', days: 4),
+          ],
+          onDidntGo: (m) => dismissed = m,
+        ),
+      )));
+      await _expectClean(tester);
+
+      await tester.tap(find.byTooltip('More').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Didn’t go'));
+      await tester.pumpAndSettle();
+      expect(dismissed?.winner?.name, 'Example Café');
+    });
+
+    for (final size in [_small, _phone]) {
+      testWidgets('crew results at ${size.width.toInt()}px, large text',
+          (tester) async {
+        _setSurface(tester, size, textScale: 1.3);
+        await tester.pumpWidget(_app(Scaffold(
+          body: ResultsView(
+            results: fixtureResults(withPhoto: false),
+            mode: 'hunger',
+            group: fixtureCrews().first,
+            myId: 'u1',
+            onOpenPlace: (_) {},
+            onOpenBill: () {},
+            onStartAgain: () {},
+          ),
+        )));
+        await _expectClean(tester);
+        expect(find.text('It’s decided'), findsOneWidget);
+        expect(find.text('4 of 5 said yes'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Split the bill'), 200);
+        await _expectClean(tester);
+      });
+    }
+
+    testWidgets('crew results with nobody saying yes', (tester) async {
+      _setSurface(tester, _small);
+      await tester.pumpWidget(_app(Scaffold(
+        body: ResultsView(
+          results: [
+            for (final r in fixtureResults(withPhoto: false))
+              PlaceResult(
+                place: r.place,
+                yesVotes: 0,
+                noVotes: 5,
+                votePercent: 0,
+                rank: r.rank,
+                isWinner: false,
+              ),
+          ],
+          mode: 'hunger',
+          group: fixtureCrews().first,
+          onOpenPlace: (_) {},
+          onOpenBill: () {},
+          onStartAgain: () {},
+        ),
+      )));
+      await _expectClean(tester);
+      expect(find.text('No clear winner'), findsOneWidget);
+      expect(find.text('Split the bill'), findsNothing);
+    });
+
+    testWidgets('solo picks, large text', (tester) async {
+      _setSurface(tester, _small, textScale: 1.3);
+      await tester.pumpWidget(_app(Scaffold(
+        body: ResultsView(
+          results: fixtureResults(withPhoto: false),
+          mode: 'travel',
+          group: null,
+          onOpenPlace: (_) {},
+          onStartAgain: () {},
+        ),
+      )));
+      await _expectClean(tester);
+      expect(find.text('Your picks'), findsOneWidget);
+      expect(find.text('You liked 3 of 3.'), findsOneWidget);
+    });
+
+    testWidgets('bill as someone who owes', (tester) async {
+      _setSurface(tester, _small, textScale: 1.3);
+      final actions = <BillAction>[];
+      await tester.pumpWidget(_app(Scaffold(
+        body: BillView(
+          bill: fixtureBill(),
+          myId: 'u2',
+          placeName: 'Example Biryani House',
+          onAction: (a, [_]) => actions.add(a),
+        ),
+      )));
+      await _expectClean(tester);
+      expect(find.text('₹2,400'), findsOneWidget);
+      expect(find.text('You owe Friend 1 ₹600'), findsOneWidget);
+      expect(find.text('2 of 4 settled'), findsOneWidget);
+
+      await tester.tap(find.text('Pay ₹600 with UPI'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('I’ve paid'));
+      await tester.tap(find.text('I’ve paid'));
+      await tester.pumpAndSettle();
+      expect(actions, [BillAction.pay, BillAction.markMePaid]);
+    });
+
+    testWidgets('bill as the person who paid', (tester) async {
+      _setSurface(tester, _small);
+      BillAction? action;
+      await tester.pumpWidget(_app(Scaffold(
+        body: BillView(
+          bill: fixtureBill(secondPaid: false),
+          myId: 'u0',
+          onAction: (a, [_]) => action = a,
+        ),
+      )));
+      await _expectClean(tester);
+      expect(find.text('Waiting on 3 people'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Friend 3'));
+      await tester.tap(find.text('Friend 3'));
+      await tester.pumpAndSettle();
+      expect(action, BillAction.toggleShare);
+    });
+
+    testWidgets('place detail, large text', (tester) async {
+      _setSurface(tester, _small, textScale: 1.3);
+      await tester.pumpWidget(_app(PlaceDetailScreen(
+        place: fixturePlace('Example Biryani House', withPhoto: false),
+        mode: 'hunger',
+        voteLine: '4 of 5 said yes',
+      )));
+      await _expectClean(tester);
+      expect(find.text('Find a table on Dineout'), findsOneWidget);
+      expect(find.text('Directions'), findsOneWidget);
+    });
+
     testWidgets('session filters', (tester) async {
       _setSurface(tester, _phone);
       await tester.pumpWidget(_app(
@@ -310,16 +465,20 @@ void main() {
 
   group('friendlyDate', () {
     final now = DateTime(2026, 9, 29, 20); // a Tuesday evening
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    setUpAll(() => initializeDateFormatting('en'));
 
     test('today and yesterday', () {
-      expect(friendlyDate(DateTime(2026, 9, 29, 9), now: now), 'Today');
-      expect(friendlyDate(DateTime(2026, 9, 28, 23), now: now), 'Yesterday');
+      expect(friendlyDate(l10n, DateTime(2026, 9, 29, 9), now: now), 'Today');
+      expect(
+          friendlyDate(l10n, DateTime(2026, 9, 28, 23), now: now), 'Yesterday');
     });
 
     test('weekday within the week, date beyond it', () {
-      expect(friendlyDate(DateTime(2026, 9, 25), now: now), 'Fri');
-      expect(friendlyDate(DateTime(2026, 9, 12), now: now), '12 Sep');
-      expect(friendlyDate(DateTime(2025, 12, 31), now: now), '31 Dec 2025');
+      expect(friendlyDate(l10n, DateTime(2026, 9, 25), now: now), 'Fri');
+      expect(friendlyDate(l10n, DateTime(2026, 9, 12), now: now), '12 Sep');
+      expect(
+          friendlyDate(l10n, DateTime(2025, 12, 31), now: now), '31 Dec 2025');
     });
   });
 }

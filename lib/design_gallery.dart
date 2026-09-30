@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'dev/fixtures.dart';
+import 'l10n/app_localizations.dart';
 import 'screens/crews_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/memory_screen.dart';
@@ -19,7 +20,8 @@ import 'widgets/start_hangout_sheet.dart';
 ///   flutter run -t lib/design_gallery.dart -d chrome
 ///
 /// Everything you can reach works as in the app: the four tabs, the "+" sheet,
-/// Eat / Explore → filters, "Swipe" → the deck, a memory → results. Anything
+/// Eat / Explore → filters → the deck, "Swipe" → the deck, a memory → results.
+/// The deck is always the same fixture places, whatever the filters. Anything
 /// that needs the live backend (crew details, creating or joining a crew,
 /// editing your profile) shows a note instead. Places have no photos here —
 /// those come from the Places API — so photo areas show their placeholder.
@@ -38,6 +40,8 @@ class _GalleryApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Hangout — gallery',
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       builder: (context, child) => HangoutBackground(child: child!),
@@ -64,13 +68,19 @@ class _GalleryShellState extends State<_GalleryShell> {
       ));
   }
 
-  void _filters(String mode) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => SessionFiltersScreen(
-        mode: mode,
-        initial: const SwipeFilters(),
+  // The app creates a session from the filters; here they go straight to the
+  // fixture deck, which ignores them.
+  Future<void> _filters(String mode) async {
+    final filters = await Navigator.of(context).push<SwipeFilters>(
+      MaterialPageRoute(
+        builder: (_) => SessionFiltersScreen(
+          mode: mode,
+          initial: const SwipeFilters(),
+        ),
       ),
-    ));
+    );
+    if (!mounted || filters == null) return;
+    _swipe();
   }
 
   void _swipe() {
